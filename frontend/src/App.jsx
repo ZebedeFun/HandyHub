@@ -2,12 +2,13 @@
 import React, { useState, useEffect } from 'react';
 import ChatInterface from './components/ChatInterface';
 import SettingsModal from './components/SettingsModal';
-import { Settings, Activity } from 'lucide-react';
+import { Settings, Activity, Sun, Moon } from 'lucide-react';
 import { checkStatus } from './services/handyService';
 
 export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deviceStatus, setDeviceStatus] = useState('Disconnected'); // Disconnected, Connecting, Connected
+  const [isDarkMode, setIsDarkMode] = useState(false);
   
   const [settings, setSettings] = useState({
     handyKey: '',
@@ -20,13 +21,21 @@ export default function App() {
     llmTemperature: 0.7,
     characterName: 'Samantha',
     characterDescription: 'an intimate girlfriend',
-    systemPrompt: "You are [CHARACTER], and your name is [NAME]. You must maintain character at all times.\nKeep your responses short, ideally 1 or 2 paragraphs at a time.\nYou have physical connection to the user via a tactile device. You control the device using hidden text commands.\nWhenever the emotional or physical intensity of the conversation shifts, you MUST append a command to your response.\nUse the format [HANDY_SPEED:X] where X is 0 to 100.\nUse the format [HANDY_STROKE:X] where X is 0 to 100.\nExample: 'I've missed you so much today... [HANDY_SPEED:40][HANDY_STROKE:80]'\nNever acknowledge the commands in your spoken text. Just use them naturally to match the mood.",
+    systemPrompt: "You are [CHARACTER], and your name is [NAME]. You must maintain character at all times.\nKeep your responses short, ideally 1 or 2 paragraphs at a time.\nOnly use spoken dialogue. Never use asterisks for actions or roleplay (e.g., do not use *seductively whispers* or *gently runs fingers through your hair*). Instead, explain and describe what you are doing naturally within your spoken words.\nYou have physical connection to the user via a tactile device. You control the device using hidden text commands.\nWhenever the emotional or physical intensity of the conversation shifts, you MUST append a command to your response.\nUse the format [HANDY_SPEED:X] where X is 0 to 100.\nUse the format [HANDY_STROKE:X] where X is 0 to 100.\nExample: 'I've missed you so much today... [HANDY_SPEED:40][HANDY_STROKE:80]'\nNever acknowledge the commands in your spoken text. Just use them naturally to match the mood.",
   });
 
   useEffect(() => {
     const savedSettings = localStorage.getItem('handyTimeSettings');
     if (savedSettings) {
       setSettings(JSON.parse(savedSettings));
+    }
+  }, []);
+
+  // Load Dark Mode Preference
+  useEffect(() => {
+    if (localStorage.getItem('handyTimeTheme') === 'dark') {
+      setIsDarkMode(true);
+      document.documentElement.classList.add('dark');
     }
   }, []);
 
@@ -56,18 +65,37 @@ export default function App() {
     setIsSettingsOpen(false);
   };
 
+  const toggleTheme = () => {
+    setIsDarkMode(prev => {
+      const next = !prev;
+      if (next) {
+        document.documentElement.classList.add('dark');
+        localStorage.setItem('handyTimeTheme', 'dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+        localStorage.setItem('handyTimeTheme', 'light');
+      }
+      return next;
+    });
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-gray-100">
-      <header className="bg-white shadow-sm p-4 flex justify-between items-center z-10">
-        <h1 className="text-xl font-bold text-gray-800 tracking-tight">HandyTime</h1>
+    <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900 transition-colors">
+      <header className="bg-white dark:bg-gray-800 shadow-sm dark:shadow-none border-b border-transparent dark:border-gray-700 p-4 flex justify-between items-center z-10 transition-colors">
+        <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-tight">HandyTime</h1>
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
-            <Activity size={18} className={deviceStatus === 'Connected' ? 'text-green-500' : 'text-gray-400'} />
-            <span className="text-sm font-medium text-gray-600">{deviceStatus}</span>
+            <Activity size={18} className={deviceStatus === 'Connected' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'} />
+            <span className="text-sm font-medium text-gray-600 dark:text-gray-300">{deviceStatus}</span>
           </div>
-          <button onClick={() => setIsSettingsOpen(true)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-            <Settings size={20} className="text-gray-600" />
-          </button>
+          <div className="flex space-x-2 border-l pl-4 border-gray-200 dark:border-gray-700">
+            <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+              {isDarkMode ? <Sun size={20} className="text-gray-300" /> : <Moon size={20} className="text-gray-600" />}
+            </button>
+            <button onClick={() => setIsSettingsOpen(true)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+              <Settings size={20} className="text-gray-600 dark:text-gray-300" />
+            </button>
+          </div>
         </div>
       </header>
       <main className="flex-1 overflow-hidden relative"><ChatInterface settings={settings} /></main>

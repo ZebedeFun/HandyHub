@@ -36,7 +36,7 @@ export default function ChatInterface({ settings }) {
     if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current) {
       idleTimerRef.current = setTimeout(() => {
         if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current) {
-          handleSend("*remains silent*");
+          handleSend(null, true);
         }
       }, 10000 + Math.random() * 5000); // Trigger between 10 to 15 seconds
     }
@@ -122,11 +122,11 @@ export default function ChatInterface({ settings }) {
     }
   };
 
-  const handleSend = async (overrideText = null) => {
+  const handleSend = async (overrideText = null, isAutoContinue = false) => {
     const isEvent = overrideText && typeof overrideText === 'object';
     const userText = isEvent || !overrideText ? inputRef.current : overrideText;
 
-    if (!userText.trim() || !settings.llmApiKey) {
+    if (!isAutoContinue && (!userText.trim() || !settings.llmApiKey)) {
         if (!settings.llmApiKey) alert("Please configure your LLM API Key in Settings.");
         return;
     }
@@ -134,9 +134,17 @@ export default function ChatInterface({ settings }) {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
     isStreamingRef.current = true;
 
-    setInput('');
-    
-    const newMessages = [...messagesRef.current, { role: 'user', text: userText }];
+    let newMessages = messagesRef.current;
+    let apiMessages = [];
+
+    if (!isAutoContinue) {
+        setInput('');
+        newMessages = [...messagesRef.current, { role: 'user', text: userText }];
+        apiMessages = newMessages.map(m => ({ role: m.role, content: m.text }));
+    } else {
+        apiMessages = [...newMessages.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: '(Please continue the scene, moving the situation slowly forward)' }];
+    }
+
     setMessages([...newMessages, { role: 'assistant', text: '' }]);
     
     try {
@@ -144,7 +152,7 @@ export default function ChatInterface({ settings }) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                messages: newMessages.map(m => ({ role: m.role, content: m.text })),
+                messages: apiMessages,
                 apiKey: settings.llmApiKey,
                 llmUrl: settings.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
                 llmModel: settings.llmModel || 'mistralai/mistral-7b-instruct:free',
