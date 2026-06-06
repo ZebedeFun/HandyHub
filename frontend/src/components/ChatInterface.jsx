@@ -1,3 +1,4 @@
+// Chat UI Component
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Mic, Bot, User } from 'lucide-react';
 import { setSpeed, setStrokeLength } from '../services/handyService';
