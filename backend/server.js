@@ -18,7 +18,7 @@ app.get('/api/health', (req, res) => {
 
 // Step 3: LLM Connect & Streams
 app.post('/api/chat', async (req, res) => {
-    const { messages, apiKey, llmUrl, llmModel, systemPrompt } = req.body;
+    const { messages, apiKey, llmUrl, llmModel, llmTemperature, systemPrompt } = req.body;
     
     if (!apiKey) {
         return res.status(400).json({ error: 'LLM API Key is required' });
@@ -38,6 +38,7 @@ app.post('/api/chat', async (req, res) => {
             },
             body: JSON.stringify({
                 model: llmModel || 'mistralai/mistral-7b-instruct:free',
+                temperature: llmTemperature !== undefined ? llmTemperature : 0.7,
                 messages: [
                     { role: 'system', content: systemPrompt },
                     ...messages

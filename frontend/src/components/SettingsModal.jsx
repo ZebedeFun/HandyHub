@@ -41,6 +41,17 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               <input type="text" name="llmModel" value={localSettings.llmModel || ''} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="e.g. mistralai/mistral-7b-instruct:free" />
             </div>
             <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-sm font-semibold text-gray-700">LLM Temperature</label>
+                <span className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-0.5 rounded">{localSettings.llmTemperature || 0.7}</span>
+              </div>
+              <input type="range" name="llmTemperature" min="0" max="2" step="0.1" value={localSettings.llmTemperature || 0.7} onChange={handleChange} className="w-full accent-pink-500" />
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>Predictable</span>
+                <span>Creative</span>
+              </div>
+            </div>
+            <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Google API Key</label>
               <input type="password" name="googleApiKey" value={localSettings.googleApiKey || ''} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="AIzaSy..." />
             </div>
