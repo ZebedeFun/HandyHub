@@ -23,7 +23,10 @@ export default function ChatInterface({ settings }) {
   const isRecordingRef = useRef(isRecording);
 
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
-  useEffect(() => { inputRef.current = input; }, [input]);
+  useEffect(() => { 
+    inputRef.current = input; 
+    resetIdleTimer();
+  }, [input]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { 
     isRecordingRef.current = isRecording;
@@ -33,9 +36,9 @@ export default function ChatInterface({ settings }) {
 
   const resetIdleTimer = () => {
     if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current) {
+    if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current && !inputRef.current.trim()) {
       idleTimerRef.current = setTimeout(() => {
-        if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current) {
+        if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current && !inputRef.current.trim()) {
           handleSend(null, true);
         }
       }, 10000 + Math.random() * 5000); // Trigger between 10 to 15 seconds
@@ -76,7 +79,7 @@ export default function ChatInterface({ settings }) {
           const data = await res.json();
           if (data.text) {
             const combinedText = inputRef.current + (inputRef.current ? ' ' : '') + data.text;
-            if (autoModeRef.current) {
+            if (autoModeRef.current && !isStreamingRef.current) {
               setInput('');
               handleSend(combinedText);
             } else {
@@ -123,6 +126,8 @@ export default function ChatInterface({ settings }) {
   };
 
   const handleSend = async (overrideText = null, isAutoContinue = false) => {
+    if (isStreamingRef.current) return;
+
     const isEvent = overrideText && typeof overrideText === 'object';
     const userText = isEvent || !overrideText ? inputRef.current : overrideText;
 
@@ -272,42 +277,42 @@ export default function ChatInterface({ settings }) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 max-w-4xl mx-auto w-full shadow-lg">
-      <div className="px-4 py-3 bg-white border-b flex justify-between items-center">
-        <span className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Chat Session</span>
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 max-w-4xl mx-auto w-full shadow-lg border-x border-transparent dark:border-gray-800 transition-colors">
+      <div className="px-4 py-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 flex justify-between items-center transition-colors">
+        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Chat Session</span>
         <div className="flex items-center space-x-4">
           <button 
             onClick={() => setShowHandyPanel(!showHandyPanel)} 
-            className={`flex items-center space-x-1 text-sm font-medium transition-colors ${showHandyPanel ? 'text-pink-600' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`flex items-center space-x-1 text-sm font-medium transition-colors ${showHandyPanel ? 'text-pink-600 dark:text-pink-400' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
           >
             <Sliders size={16} />
             <span className="hidden sm:inline">Device Panel</span>
           </button>
-          <label className="flex items-center space-x-2 text-sm cursor-pointer border-l pl-4 border-gray-200">
+          <label className="flex items-center space-x-2 text-sm cursor-pointer border-l pl-4 border-gray-200 dark:border-gray-700">
             <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} className="rounded text-pink-500 focus:ring-pink-500" />
-            <span className="text-gray-700 font-medium">Auto Mode</span>
+            <span className="text-gray-700 dark:text-gray-300 font-medium">Auto Mode</span>
           </label>
         </div>
       </div>
 
       {showHandyPanel && (
-        <div className="bg-white border-b px-4 py-4 shadow-inner flex flex-col sm:flex-row gap-4 items-center justify-between z-0">
+        <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-4 shadow-inner flex flex-col sm:flex-row gap-4 items-center justify-between z-0 transition-colors">
           <div className="flex items-center space-x-2 text-pink-500 font-semibold w-full sm:w-auto justify-center">
             <Zap size={20} />
             <span>Hardware State</span>
           </div>
           <div className="flex items-center space-x-6 w-full max-w-md">
             <div className="flex-1">
-              <div className="flex justify-between text-xs text-gray-600 mb-1 font-semibold">
+              <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1 font-semibold">
                 <span className="uppercase tracking-wider">Speed</span>
-                <span className="font-mono bg-gray-100 px-1 rounded">{handyState.speed}%</span>
+                <span className="font-mono bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-1 rounded">{handyState.speed}%</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2.5 shadow-inner overflow-hidden"><div className="bg-pink-500 h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${handyState.speed}%` }}></div></div>
             </div>
             <div className="flex-1">
-              <div className="flex justify-between text-xs text-gray-600 mb-1 font-semibold">
+              <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1 font-semibold">
                 <span className="uppercase tracking-wider">Stroke Length</span>
-                <span className="font-mono bg-gray-100 px-1 rounded">{handyState.stroke}%</span>
+                <span className="font-mono bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-1 rounded">{handyState.stroke}%</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2.5 shadow-inner overflow-hidden"><div className="bg-purple-500 h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${handyState.stroke}%` }}></div></div>
             </div>
@@ -315,13 +320,13 @@ export default function ChatInterface({ settings }) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-gray-900 transition-colors">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             <div className={`max-w-[80%] rounded-2xl p-4 ${
-              msg.role === 'user' ? 'bg-pink-500 text-white rounded-br-none shadow-md' : 'bg-white text-gray-800 shadow-sm rounded-bl-none border border-gray-100'
+              msg.role === 'user' ? 'bg-pink-500 text-white rounded-br-none shadow-md' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 shadow-sm rounded-bl-none border border-gray-100 dark:border-gray-700'
             }`}>
-              <div className="flex items-center space-x-2 mb-1 opacity-70">
+              <div className="flex items-center space-x-2 mb-1 opacity-70 dark:text-gray-300">
                 {msg.role === 'assistant' ? <Bot size={14} /> : <User size={14} />}
                 <span className="text-xs font-semibold uppercase tracking-wider">
                   {msg.role === 'user' ? 'You' : (settings.characterName || 'Samantha')}
@@ -334,17 +339,17 @@ export default function ChatInterface({ settings }) {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="bg-white p-4 border-t">
+      <div className="bg-white dark:bg-gray-800 p-4 border-t dark:border-gray-700 transition-colors">
         <div className="flex items-center space-x-3">
           <button 
             onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording}
             onTouchStart={startRecording} onTouchEnd={stopRecording}
-            className={`p-3 rounded-full flex-shrink-0 transition-colors ${isRecording ? 'bg-red-500 text-white shadow-inner' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`p-3 rounded-full flex-shrink-0 transition-colors ${isRecording ? 'bg-red-500 text-white shadow-inner' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
             title="Push to talk"
           >
             <Mic size={22} />
           </button>
-          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Type a message..." className="flex-1 border-gray-300 rounded-full px-5 py-3 focus:outline-none focus:ring-2 focus:ring-pink-500 border bg-gray-50" />
+          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Type a message..." className="flex-1 border border-gray-300 dark:border-gray-600 rounded-full px-5 py-3 focus:outline-none focus:ring-2 focus:ring-pink-500 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white transition-colors" />
           <button onClick={handleSend} className="p-3 bg-pink-500 text-white rounded-full flex-shrink-0 hover:bg-pink-600 transition-colors shadow-md">
             <Send size={22} />
           </button>
