@@ -82,13 +82,17 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               </div>
             </div>
             <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Character Name</label>
+              <input type="text" name="characterName" value={localSettings.characterName || ''} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="e.g. Samantha" />
+            </div>
+            <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Character Description</label>
-              <input type="text" name="characterDescription" value={localSettings.characterDescription} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" />
+              <textarea name="characterDescription" value={localSettings.characterDescription || ''} onChange={handleChange} className="w-full border rounded-lg p-3 h-24 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="Describe personality, traits, and behavior..." />
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">System Prompt Base</label>
               <textarea name="systemPrompt" value={localSettings.systemPrompt} onChange={handleChange} className="w-full border rounded-lg p-3 h-40 font-mono text-sm bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" />
-              <p className="text-xs text-gray-500 mt-2">Use <code className="bg-gray-100 px-1 rounded">[CHARACTER]</code> to inject the description dynamically during chats.</p>
+              <p className="text-xs text-gray-500 mt-2">Use <code className="bg-gray-100 px-1 rounded">[CHARACTER]</code> and <code className="bg-gray-100 px-1 rounded">[NAME]</code> to inject the description and name dynamically during chats.</p>
             </div>
             <div className="pt-6 flex justify-end space-x-3 border-t">
               <button type="button" onClick={onClose} className="px-5 py-2.5 border rounded-lg text-gray-600 hover:bg-gray-50 font-medium transition">Cancel</button>

@@ -149,7 +149,7 @@ export default function ChatInterface({ settings }) {
                 llmUrl: settings.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
                 llmModel: settings.llmModel || 'mistralai/mistral-7b-instruct:free',
                 llmTemperature: parseFloat(settings.llmTemperature) || 0.7,
-                systemPrompt: settings.systemPrompt.replace('[CHARACTER]', settings.characterDescription)
+                systemPrompt: settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha')
             })
         });
 
@@ -316,7 +316,7 @@ export default function ChatInterface({ settings }) {
               <div className="flex items-center space-x-2 mb-1 opacity-70">
                 {msg.role === 'assistant' ? <Bot size={14} /> : <User size={14} />}
                 <span className="text-xs font-semibold uppercase tracking-wider">
-                  {msg.role === 'user' ? 'You' : settings.characterDescription}
+                  {msg.role === 'user' ? 'You' : (settings.characterName || 'Samantha')}
                 </span>
               </div>
               <p className="text-sm md:text-base leading-relaxed whitespace-pre-wrap">{msg.text}</p>
