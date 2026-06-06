@@ -39,7 +39,8 @@ export default function ChatInterface({ settings }) {
             body: JSON.stringify({
                 messages: newMessages.map(m => ({ role: m.role, content: m.text })),
                 apiKey: settings.llmApiKey,
-                    llmUrl: settings.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
+                llmUrl: settings.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
+                llmModel: settings.llmModel || 'mistralai/mistral-7b-instruct:free',
                 systemPrompt: settings.systemPrompt.replace('[CHARACTER]', settings.characterDescription)
             })
         });

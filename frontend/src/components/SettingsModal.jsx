@@ -37,6 +37,10 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               <input type="text" name="llmUrl" value={localSettings.llmUrl || ''} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="https://openrouter.ai/api/v1/chat/completions" />
             </div>
             <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">LLM Model</label>
+              <input type="text" name="llmModel" value={localSettings.llmModel || ''} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="e.g. mistralai/mistral-7b-instruct:free" />
+            </div>
+            <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Google API Key</label>
               <input type="password" name="googleApiKey" value={localSettings.googleApiKey || ''} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="AIzaSy..." />
             </div>
