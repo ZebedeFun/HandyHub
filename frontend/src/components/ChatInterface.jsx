@@ -1,6 +1,6 @@
 // Chat UI Component
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Bot, User, Sliders, Zap } from 'lucide-react';
+import { Send, Mic, Bot, User, Sliders, Zap, Volume2, VolumeX } from 'lucide-react';
 import { setSpeed, setStrokeLength } from '../services/handyService';
 
 export default function ChatInterface({ settings }) {
@@ -10,6 +10,8 @@ export default function ChatInterface({ settings }) {
   const [input, setInput] = useState('');
   const [autoMode, setAutoMode] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
   const [showHandyPanel, setShowHandyPanel] = useState(false);
   const [handyState, setHandyState] = useState({ speed: 0, stroke: 100 });
   const messagesEndRef = useRef(null);
@@ -21,6 +23,14 @@ export default function ChatInterface({ settings }) {
   const idleTimerRef = useRef(null);
   const isStreamingRef = useRef(false);
   const isRecordingRef = useRef(isRecording);
+  const currentAudioRef = useRef(null);
+  const isRecordingIntentRef = useRef(false);
+
+  useEffect(() => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.volume = isMuted ? 0 : volume;
+    }
+  }, [volume, isMuted]);
 
   useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
   useEffect(() => { 
@@ -59,9 +69,25 @@ export default function ChatInterface({ settings }) {
       alert("Please configure your Google API Key in Settings first.");
       return;
     }
+    isRecordingIntentRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
+      
+      if (!isRecordingIntentRef.current) {
+        // User released the button before mic access was granted
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
+      // Try to enforce webm/opus for Google STT compatibility
+      let mimeType = '';
+      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+        mimeType = 'audio/webm;codecs=opus';
+      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+        mimeType = 'audio/webm';
+      }
+
+      mediaRecorderRef.current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
       audioChunksRef.current = [];
 
       mediaRecorderRef.current.ondataavailable = (e) => {
@@ -69,7 +95,7 @@ export default function ChatInterface({ settings }) {
       };
 
       mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
         const formData = new FormData();
         formData.append('audio', audioBlob);
         formData.append('googleApiKey', settings.googleApiKey);
@@ -102,15 +128,16 @@ export default function ChatInterface({ settings }) {
 
   // STT: Stop Recording
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
+    isRecordingIntentRef.current = false;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
       mediaRecorderRef.current.stop();
-      setIsRecording(false);
     }
+    setIsRecording(false);
   };
 
   // TTS: Playback AI Response
   const playTTS = async (text) => {
-    if (!settings.googleApiKey) return;
+    if (!settings.googleApiKey || isMuted) return;
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -119,7 +146,12 @@ export default function ChatInterface({ settings }) {
       });
       if (!res.ok) throw new Error('TTS fetch failed');
       const audio = new Audio(URL.createObjectURL(await res.blob()));
+      audio.volume = volume;
+      currentAudioRef.current = audio;
       audio.play();
+      audio.onended = () => {
+        if (currentAudioRef.current === audio) currentAudioRef.current = null;
+      };
     } catch (err) {
       console.error('TTS Playback Error:', err);
     }
@@ -278,19 +310,39 @@ export default function ChatInterface({ settings }) {
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 max-w-4xl mx-auto w-full shadow-lg border-x border-transparent dark:border-gray-800 transition-colors">
-      <div className="px-4 py-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 flex justify-between items-center transition-colors">
-        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Chat Session</span>
-        <div className="flex items-center space-x-4">
+      <div className="px-4 py-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 flex justify-between items-center transition-colors overflow-x-auto">
+        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:block">Chat Session</span>
+        <div className="flex items-center space-x-3 sm:space-x-4 ml-auto">
+          <div className="flex items-center space-x-1 sm:space-x-2">
+            <button 
+              onClick={() => setIsMuted(!isMuted)}
+              className="text-gray-500 dark:text-gray-400 hover:text-pink-500 dark:hover:text-pink-400 transition-colors"
+            >
+              {isMuted ? <VolumeX size={18} /> : <Volume2 size={18} />}
+            </button>
+            <input 
+              type="range" 
+              min="0" max="1" step="0.05" 
+              value={isMuted ? 0 : volume} 
+              onChange={(e) => {
+                const val = parseFloat(e.target.value);
+                setVolume(val);
+                if (val > 0) setIsMuted(false);
+                if (val === 0) setIsMuted(true);
+              }}
+              className="w-16 sm:w-20 accent-pink-500"
+            />
+          </div>
           <button 
             onClick={() => setShowHandyPanel(!showHandyPanel)} 
-            className={`flex items-center space-x-1 text-sm font-medium transition-colors ${showHandyPanel ? 'text-pink-600 dark:text-pink-400' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
+            className={`flex items-center space-x-1 text-sm font-medium transition-colors border-l pl-3 sm:pl-4 border-gray-200 dark:border-gray-700 ${showHandyPanel ? 'text-pink-600 dark:text-pink-400' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
           >
             <Sliders size={16} />
-            <span className="hidden sm:inline">Device Panel</span>
+            <span className="hidden sm:inline">Panel</span>
           </button>
-          <label className="flex items-center space-x-2 text-sm cursor-pointer border-l pl-4 border-gray-200 dark:border-gray-700">
+          <label className="flex items-center space-x-2 text-sm cursor-pointer border-l pl-3 sm:pl-4 border-gray-200 dark:border-gray-700">
             <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} className="rounded text-pink-500 focus:ring-pink-500" />
-            <span className="text-gray-700 dark:text-gray-300 font-medium">Auto Mode</span>
+            <span className="text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">Auto Mode</span>
           </label>
         </div>
       </div>

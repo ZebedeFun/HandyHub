@@ -82,7 +82,7 @@ app.post('/api/stt', upload.single('audio'), async (req, res) => {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                config: { encoding: 'WEBM_OPUS', sampleRateHertz: 48000, languageCode: 'en-US' },
+                config: { encoding: 'WEBM_OPUS', languageCode: 'en-US' },
                 audio: { content: audioContent }
             })
         });
