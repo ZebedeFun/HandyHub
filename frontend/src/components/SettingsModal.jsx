@@ -33,8 +33,38 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               <input type="password" name="llmApiKey" value={localSettings.llmApiKey} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">Google API Credentials (JSON)</label>
-              <textarea name="googleCredentials" value={localSettings.googleCredentials} onChange={handleChange} className="w-full border rounded-lg p-3 h-24 font-mono text-sm bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="{ ... }" />
+              <label className="block text-sm font-semibold text-gray-700 mb-1">LLM URL Endpoint</label>
+              <input type="text" name="llmUrl" value={localSettings.llmUrl || ''} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="https://openrouter.ai/api/v1/chat/completions" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">Google API Key</label>
+              <input type="password" name="googleApiKey" value={localSettings.googleApiKey || ''} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="AIzaSy..." />
+            </div>
+            <div className="flex space-x-4">
+              <div className="w-1/2">
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Google Voice API</label>
+                <select name="googleTtsType" value={localSettings.googleTtsType || 'Neural2'} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition">
+                  <option value="Standard">Standard</option>
+                  <option value="Wavenet">WaveNet</option>
+                  <option value="Neural2">Neural2</option>
+                  <option value="Journey">Journey</option>
+                </select>
+              </div>
+              <div className="w-1/2">
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Voice Identifier</label>
+                <select name="googleVoice" value={localSettings.googleVoice || 'F'} onChange={handleChange} className="w-full border rounded-lg p-3 bg-gray-50 focus:bg-white focus:ring-2 focus:ring-pink-500 outline-none transition">
+                  <option value="A">Voice A (Male)</option>
+                  <option value="B">Voice B (Male)</option>
+                  <option value="C">Voice C (Female)</option>
+                  <option value="D">Voice D (Male)</option>
+                  <option value="E">Voice E (Female)</option>
+                  <option value="F">Voice F (Female)</option>
+                  <option value="G">Voice G (Female)</option>
+                  <option value="H">Voice H (Female)</option>
+                  <option value="I">Voice I (Male)</option>
+                  <option value="J">Voice J (Male)</option>
+                </select>
+              </div>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-1">Character Description</label>

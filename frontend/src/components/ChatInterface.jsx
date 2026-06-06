@@ -39,6 +39,7 @@ export default function ChatInterface({ settings }) {
             body: JSON.stringify({
                 messages: newMessages.map(m => ({ role: m.role, content: m.text })),
                 apiKey: settings.llmApiKey,
+                    llmUrl: settings.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
                 systemPrompt: settings.systemPrompt.replace('[CHARACTER]', settings.characterDescription)
             })
         });

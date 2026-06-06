@@ -1,8 +1,6 @@
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const speech = require('@google-cloud/speech');
-const textToSpeech = require('@google-cloud/text-to-speech');
 const path = require('path');
 
 const app = express();
@@ -18,28 +16,19 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 
-// Helper to get Google clients dynamically using passed credentials
-const getGoogleClients = (credentialsStr) => {
-    try {
-        const credentials = JSON.parse(credentialsStr);
-        const sttClient = new speech.SpeechClient({ credentials });
-        const ttsClient = new textToSpeech.TextToSpeechClient({ credentials });
-        return { sttClient, ttsClient };
-    } catch (e) {
-        throw new Error('Invalid Google API Credentials');
-    }
-};
-
 // Step 3: LLM Connect & Streams
 app.post('/api/chat', async (req, res) => {
-    const { messages, apiKey, systemPrompt } = req.body;
+    const { messages, apiKey, llmUrl, systemPrompt } = req.body;
     
     if (!apiKey) {
         return res.status(400).json({ error: 'LLM API Key is required' });
     }
+    if (!llmUrl) {
+        return res.status(400).json({ error: 'LLM URL is required' });
+    }
 
     try {
-        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        const response = await fetch(llmUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -83,15 +72,23 @@ app.post('/api/chat', async (req, res) => {
 // STT Endpoint
 app.post('/api/stt', upload.single('audio'), async (req, res) => {
     try {
-        const { googleCredentials } = req.body;
-        if (!googleCredentials) return res.status(400).json({ error: 'Missing Google credentials' });
+        const { googleApiKey } = req.body;
+        if (!googleApiKey) return res.status(400).json({ error: 'Missing Google API Key' });
         
-        const { sttClient } = getGoogleClients(googleCredentials);
-        const audio = { content: req.file.buffer.toString('base64') };
-        const config = { encoding: 'WEBM_OPUS', sampleRateHertz: 48000, languageCode: 'en-US' };
+        const audioContent = req.file.buffer.toString('base64');
         
-        const [response] = await sttClient.recognize({ audio, config });
-        const transcription = response.results.map(r => r.alternatives[0].transcript).join('\n');
+        const response = await fetch(`https://speech.googleapis.com/v1/speech:recognize?key=${googleApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                config: { encoding: 'WEBM_OPUS', sampleRateHertz: 48000, languageCode: 'en-US' },
+                audio: { content: audioContent }
+            })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error?.message || 'STT Error');
+
+        const transcription = data.results?.map(r => r.alternatives[0].transcript).join('\n') || '';
             
         res.json({ text: transcription });
     } catch (error) {
@@ -103,19 +100,26 @@ app.post('/api/stt', upload.single('audio'), async (req, res) => {
 // TTS Endpoint
 app.post('/api/tts', async (req, res) => {
     try {
-        const { text, googleCredentials } = req.body;
-        if (!googleCredentials) return res.status(400).json({ error: 'Missing Google credentials' });
+        const { text, googleApiKey, googleTtsType = 'Neural2', googleVoice = 'F' } = req.body;
+        if (!googleApiKey) return res.status(400).json({ error: 'Missing Google API Key' });
 
-        const { ttsClient } = getGoogleClients(googleCredentials);
-        const request = {
-            input: { text },
-            voice: { languageCode: 'en-US', name: 'en-US-Neural2-F' },
-            audioConfig: { audioEncoding: 'MP3', speakingRate: 0.9 },
-        };
+        const voiceName = `en-US-${googleTtsType}-${googleVoice}`;
 
-        const [response] = await ttsClient.synthesizeSpeech(request);
+        const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${googleApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                input: { text },
+                voice: { languageCode: 'en-US', name: voiceName },
+                audioConfig: { audioEncoding: 'MP3', speakingRate: 0.9 }
+            })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error?.message || 'TTS Error');
+
+        const audioBuffer = Buffer.from(data.audioContent, 'base64');
         res.set('Content-Type', 'audio/mpeg');
-        res.send(response.audioContent);
+        res.send(audioBuffer);
     } catch (error) {
         console.error('TTS Error:', error);
         res.status(500).json({ error: error.message });
