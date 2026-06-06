@@ -15,6 +15,32 @@ export default function ChatInterface({ settings }) {
   const messagesEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  const autoModeRef = useRef(autoMode);
+  const inputRef = useRef(input);
+  const messagesRef = useRef(messages);
+  const idleTimerRef = useRef(null);
+  const isStreamingRef = useRef(false);
+  const isRecordingRef = useRef(isRecording);
+
+  useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
+  useEffect(() => { inputRef.current = input; }, [input]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { 
+    isRecordingRef.current = isRecording;
+    resetIdleTimer();
+    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
+  }, [autoMode, isRecording]);
+
+  const resetIdleTimer = () => {
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current) {
+      idleTimerRef.current = setTimeout(() => {
+        if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current) {
+          handleSend("*remains silent*");
+        }
+      }, 10000 + Math.random() * 5000); // Trigger between 10 to 15 seconds
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -48,7 +74,15 @@ export default function ChatInterface({ settings }) {
         try {
           const res = await fetch('/api/stt', { method: 'POST', body: formData });
           const data = await res.json();
-          if (data.text) setInput(prev => prev + (prev ? ' ' : '') + data.text);
+          if (data.text) {
+            const combinedText = inputRef.current + (inputRef.current ? ' ' : '') + data.text;
+            if (autoModeRef.current) {
+              setInput('');
+              handleSend(combinedText);
+            } else {
+              setInput(combinedText);
+            }
+          }
         } catch (err) {
           console.error('STT Error:', err);
         }
@@ -88,16 +122,21 @@ export default function ChatInterface({ settings }) {
     }
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || !settings.llmApiKey) {
+  const handleSend = async (overrideText = null) => {
+    const isEvent = overrideText && typeof overrideText === 'object';
+    const userText = isEvent || !overrideText ? inputRef.current : overrideText;
+
+    if (!userText.trim() || !settings.llmApiKey) {
         if (!settings.llmApiKey) alert("Please configure your LLM API Key in Settings.");
         return;
     }
     
-    const userText = input;
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    isStreamingRef.current = true;
+
     setInput('');
     
-    const newMessages = [...messages, { role: 'user', text: userText }];
+    const newMessages = [...messagesRef.current, { role: 'user', text: userText }];
     setMessages([...newMessages, { role: 'assistant', text: '' }]);
     
     try {
@@ -218,6 +257,9 @@ export default function ChatInterface({ settings }) {
         
     } catch (err) {
         console.error("Chat Error:", err);
+    } finally {
+        isStreamingRef.current = false;
+        resetIdleTimer();
     }
   };
 
