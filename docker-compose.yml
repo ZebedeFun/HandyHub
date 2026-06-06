@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  handytime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: handytime:latest
+    container_name: handytime_app
+    ports:
+      - "3001:3001"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
