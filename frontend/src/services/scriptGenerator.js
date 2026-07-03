@@ -62,9 +62,9 @@ export function generateProceduralScript(durationMs, params) {
       // Pick a gap (speed)
       const randFactorGap = (Math.random() * 2 - 1) * (randomness / 10) * 0.8;
       
-      // Speed mapping: 1 = 2000ms (very slow), 10 = 50ms (extremely fast)
+      // Speed mapping: 1 = 2000ms (very slow), 10 = 30ms (insanely fast)
       const maxGap = 2000;
-      const minGap = 50;
+      const minGap = 30;
       const avgGap = maxGap - ((effectiveSpeed - 1) / 9) * (maxGap - minGap);
       blockGap = Math.max(minGap, Math.min(4000, avgGap * (1 + randFactorGap)));
       
