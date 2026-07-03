@@ -11,6 +11,10 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
     // Ensure minStroke <= maxStroke
     if (name === 'minStroke' && parsedValue > params.maxStroke) parsedValue = params.maxStroke;
     if (name === 'maxStroke' && parsedValue < params.minStroke) parsedValue = params.minStroke;
+    
+    // Ensure minStrokeLength <= maxStrokeLength
+    if (name === 'minStrokeLength' && parsedValue > params.maxStrokeLength) parsedValue = params.maxStrokeLength;
+    if (name === 'maxStrokeLength' && parsedValue < params.minStrokeLength) parsedValue = params.minStrokeLength;
 
     setParams(prev => ({
       ...prev,
@@ -49,6 +53,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
               >
                 <option value="consistent">Consistent</option>
                 <option value="build">Build Over Time</option>
+                <option value="random">Random Phases</option>
               </select>
             </div>
 
@@ -83,16 +88,29 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
               />
             </div>
 
-            <div>
-              <div className="flex justify-between mb-1">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Intensity</label>
-                <span className="text-xs font-mono text-purple-500">{params.intensity}</span>
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Min Length</label>
+                  <span className="text-[10px] font-mono text-purple-500">{params.minStrokeLength}%</span>
+                </div>
+                <input 
+                  type="range" min="5" max="100" name="minStrokeLength" 
+                  value={params.minStrokeLength} onChange={handleChange}
+                  className="w-full accent-purple-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
               </div>
-              <input 
-                type="range" min="1" max="10" name="intensity" 
-                value={params.intensity} onChange={handleChange}
-                className="w-full accent-purple-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-              />
+              <div className="flex-1">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Max Length</label>
+                  <span className="text-[10px] font-mono text-purple-500">{params.maxStrokeLength}%</span>
+                </div>
+                <input 
+                  type="range" min="5" max="100" name="maxStrokeLength" 
+                  value={params.maxStrokeLength} onChange={handleChange}
+                  className="w-full accent-purple-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+              </div>
             </div>
 
             <div>

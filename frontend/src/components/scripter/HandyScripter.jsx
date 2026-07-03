@@ -21,7 +21,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
   
   const [params, setParams] = useState({
     baseSpeed: 5,
-    intensity: 5,
+    minStrokeLength: 10,
+    maxStrokeLength: 100,
     randomness: 3,
     minStroke: 0,
     maxStroke: 100,

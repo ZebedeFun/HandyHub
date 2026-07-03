@@ -12,10 +12,11 @@
 export function generateProceduralScript(durationMs, params) {
   const {
     baseSpeed = 5,
-    intensity = 5,
     randomness = 5,
     minStroke = 0,
     maxStroke = 100,
+    minStrokeLength = 10,
+    maxStrokeLength = 100,
     patternMode = 'consistent',
     blockSizeSec = 0,
     cooldownSec = 0
@@ -33,40 +34,43 @@ export function generateProceduralScript(durationMs, params) {
   let blockEndTime = 0;
   let blockGap = 0;
   let blockMovementSize = 0;
+  
+  // State for the current block's target parameters
+  let currentBlockSpeed = baseSpeed;
+  let currentBlockLengthPct = maxStrokeLength;
 
   while (currentTime < durationMs) {
-    let effectiveSpeed = baseSpeed;
-    let effectiveIntensity = intensity;
-    
     const timeRemainingMs = durationMs - currentTime;
     const inCooldown = cooldownSec > 0 && timeRemainingMs <= cooldownSec * 1000;
-
-    if (inCooldown) {
-      // Force minimal movement and slow speed during cooldown
-      effectiveSpeed = 1;
-      effectiveIntensity = 1;
-    } else if (patternMode === 'build') {
-      // Scale progress up to the start of the cooldown
-      const activeDuration = cooldownSec > 0 ? durationMs - (cooldownSec * 1000) : durationMs;
-      const progress = activeDuration > 0 ? Math.min(1, currentTime / activeDuration) : 1;
-      // Start at 1 (very slow/soft), build up to the user's requested settings
-      effectiveSpeed = 1 + (baseSpeed - 1) * progress;
-      effectiveIntensity = 1 + (intensity - 1) * progress;
-    }
-
     const range = maxStroke - minStroke;
 
     // Pick new stroke parameters if we are past the current block's duration
     // Also force re-evaluation if we just entered the cooldown phase
     if (currentTime >= blockEndTime || (inCooldown && blockGap < 500)) {
       
-      // 1. Pick a movement size (intensity)
-      // Intensity mapping: 1 = 5% of range, 10 = 100% of range
-      const minInt = 0.05;
-      const maxInt = 1.0;
-      const intensityRatio = minInt + ((effectiveIntensity - 1) / 9) * (maxInt - minInt);
+      // Determine base parameters for THIS block
+      if (inCooldown) {
+         currentBlockSpeed = 1;
+         currentBlockLengthPct = 10;
+      } else if (patternMode === 'build') {
+         const activeDuration = cooldownSec > 0 ? durationMs - (cooldownSec * 1000) : durationMs;
+         const progress = activeDuration > 0 ? Math.min(1, currentTime / activeDuration) : 1;
+         currentBlockSpeed = 1 + (baseSpeed - 1) * progress;
+         currentBlockLengthPct = minStrokeLength + (maxStrokeLength - minStrokeLength) * progress;
+      } else if (patternMode === 'random') {
+         // Random Phases: Pick a completely random speed and length within user bounds for this block
+         currentBlockSpeed = 1 + (Math.random() * (baseSpeed - 1));
+         const lengthRange = maxStrokeLength - minStrokeLength;
+         currentBlockLengthPct = minStrokeLength + (Math.random() * lengthRange);
+      } else {
+         // Consistent mode: Use baseSpeed, but pick a random length within bounds for variety
+         currentBlockSpeed = baseSpeed;
+         const lengthRange = maxStrokeLength - minStrokeLength;
+         currentBlockLengthPct = minStrokeLength + (Math.random() * lengthRange);
+      }
       
-      const baseMovement = range * intensityRatio;
+      // 1. Pick a movement size based on the chosen block length
+      const baseMovement = range * (currentBlockLengthPct / 100);
       const randFactorPos = (Math.random() * 2 - 1) * (randomness / 10) * 0.2;
       blockMovementSize = Math.max(0, Math.min(range, baseMovement + (range * randFactorPos)));
 
@@ -75,7 +79,7 @@ export function generateProceduralScript(durationMs, params) {
       // Speed mapping: 1 = 40 pts/sec, 10 = 400 pts/sec
       const minTargetSpeed = 40;
       const maxTargetSpeed = 400;
-      const targetSpeed = minTargetSpeed + ((effectiveSpeed - 1) / 9) * (maxTargetSpeed - minTargetSpeed);
+      const targetSpeed = minTargetSpeed + ((currentBlockSpeed - 1) / 9) * (maxTargetSpeed - minTargetSpeed);
       
       // 3. Add randomness to target speed
       const randFactorSpeed = (Math.random() * 2 - 1) * (randomness / 10) * 0.3; 
