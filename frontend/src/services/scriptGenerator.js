@@ -62,12 +62,19 @@ export function generateProceduralScript(durationMs, params) {
       // Pick a gap (speed)
       const randFactorGap = (Math.random() * 2 - 1) * (randomness / 10) * 0.8;
       
-      // Speed mapping: 1 = 1000ms, 10 = 100ms
-      const avgGap = 1000 - ((effectiveSpeed - 1) * 100);
-      blockGap = Math.max(100, Math.min(4000, avgGap * (1 + randFactorGap)));
+      // Speed mapping: 1 = 2000ms (very slow), 10 = 50ms (extremely fast)
+      const maxGap = 2000;
+      const minGap = 50;
+      const avgGap = maxGap - ((effectiveSpeed - 1) / 9) * (maxGap - minGap);
+      blockGap = Math.max(minGap, Math.min(4000, avgGap * (1 + randFactorGap)));
       
       // Pick a movement size (intensity)
-      const baseMovement = range * (0.2 + (effectiveIntensity / 10) * 0.8);
+      // Intensity mapping: 1 = 5% of range (tiny movements), 10 = 100% of range
+      const minInt = 0.05;
+      const maxInt = 1.0;
+      const intensityRatio = minInt + ((effectiveIntensity - 1) / 9) * (maxInt - minInt);
+      
+      const baseMovement = range * intensityRatio;
       const randFactorPos = (Math.random() * 2 - 1) * (randomness / 10) * 0.2;
       blockMovementSize = Math.max(0, Math.min(range, baseMovement + (range * randFactorPos)));
       
