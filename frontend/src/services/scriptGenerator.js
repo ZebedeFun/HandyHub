@@ -17,7 +17,8 @@ export function generateProceduralScript(durationMs, params) {
     minStroke = 0,
     maxStroke = 100,
     patternMode = 'consistent',
-    blockSizeSec = 0
+    blockSizeSec = 0,
+    cooldownSec = 0
   } = params;
 
   const actions = [];
@@ -37,9 +38,17 @@ export function generateProceduralScript(durationMs, params) {
     let effectiveSpeed = baseSpeed;
     let effectiveIntensity = intensity;
     
-    // If building over time, scale effective parameters based on progress
-    if (patternMode === 'build') {
-      const progress = Math.min(1, currentTime / durationMs);
+    const timeRemainingMs = durationMs - currentTime;
+    const inCooldown = cooldownSec > 0 && timeRemainingMs <= cooldownSec * 1000;
+
+    if (inCooldown) {
+      // Force minimal movement and slow speed during cooldown
+      effectiveSpeed = 1;
+      effectiveIntensity = 1;
+    } else if (patternMode === 'build') {
+      // Scale progress up to the start of the cooldown
+      const activeDuration = cooldownSec > 0 ? durationMs - (cooldownSec * 1000) : durationMs;
+      const progress = activeDuration > 0 ? Math.min(1, currentTime / activeDuration) : 1;
       // Start at 1 (very slow/soft), build up to the user's requested settings
       effectiveSpeed = 1 + (baseSpeed - 1) * progress;
       effectiveIntensity = 1 + (intensity - 1) * progress;
@@ -48,10 +57,13 @@ export function generateProceduralScript(durationMs, params) {
     const range = maxStroke - minStroke;
 
     // Pick new stroke parameters if we are past the current block's duration
-    if (currentTime >= blockEndTime) {
+    // Also force re-evaluation if we just entered the cooldown phase
+    if (currentTime >= blockEndTime || (inCooldown && blockGap < 500)) {
       // Pick a gap (speed)
       const randFactorGap = (Math.random() * 2 - 1) * (randomness / 10) * 0.8;
-      const avgGap = 2500 - (effectiveSpeed * 200);
+      
+      // Speed mapping: 1 = 1000ms, 10 = 100ms
+      const avgGap = 1000 - ((effectiveSpeed - 1) * 100);
       blockGap = Math.max(100, Math.min(4000, avgGap * (1 + randFactorGap)));
       
       // Pick a movement size (intensity)
@@ -60,7 +72,9 @@ export function generateProceduralScript(durationMs, params) {
       blockMovementSize = Math.max(0, Math.min(range, baseMovement + (range * randFactorPos)));
       
       // Set the end time for this block of consistent movement
-      if (blockSizeSec > 0) {
+      if (inCooldown) {
+         blockEndTime = durationMs; // Lock in cooldown settings until the end
+      } else if (blockSizeSec > 0) {
         blockEndTime = currentTime + (blockSizeSec * 1000);
       } else {
         blockEndTime = currentTime; // Will recalculate on next tick

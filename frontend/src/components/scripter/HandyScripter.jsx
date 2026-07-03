@@ -12,6 +12,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
   
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   const [durationMs, setDurationMs] = useState(0);
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -25,7 +26,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
     minStroke: 0,
     maxStroke: 100,
     patternMode: 'consistent',
-    blockSizeSec: 0
+    blockSizeSec: 0,
+    cooldownSec: 0
   });
 
   // Handle Video Upload
@@ -35,6 +37,28 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
       setFunscript(null); // clear old script
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('video/')) {
+      setVideoFile(file);
+      setVideoUrl(URL.createObjectURL(file));
+      setFunscript(null);
     }
   };
 
@@ -105,14 +129,19 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
             {/* Video Player Area */}
             <div className="flex-1 bg-black rounded-2xl overflow-hidden relative shadow-lg flex items-center justify-center border border-gray-800">
               {!videoUrl ? (
-                <div className="text-center p-8 flex flex-col items-center">
-                  <div className="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                <div 
+                  className={`text-center p-8 flex flex-col items-center w-full h-full justify-center transition-colors ${isDragging ? 'bg-gray-800/80 border-2 border-blue-500 border-dashed' : ''}`}
+                  onDragOver={handleDragOver}
+                  onDragLeave={handleDragLeave}
+                  onDrop={handleDrop}
+                >
+                  <div className="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-4 pointer-events-none">
                     <Upload size={32} className="text-blue-500" />
                   </div>
-                  <h3 className="text-xl font-medium text-white mb-2">Upload a Video</h3>
-                  <p className="text-gray-400 mb-6 max-w-sm">Select an MP4 video from your device to begin generating a synchronized funscript.</p>
+                  <h3 className="text-xl font-medium text-white mb-2 pointer-events-none">Upload a Video</h3>
+                  <p className="text-gray-400 mb-6 max-w-sm pointer-events-none">Select an MP4 video from your device or drag and drop it here to begin generating a synchronized funscript.</p>
                   
-                  <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-full font-medium transition-colors">
+                  <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-full font-medium transition-colors z-10">
                     Browse Files
                     <input type="file" accept="video/*" className="hidden" onChange={handleFileUpload} />
                   </label>
