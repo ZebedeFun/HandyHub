@@ -23,7 +23,9 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
     intensity: 5,
     randomness: 3,
     minStroke: 0,
-    maxStroke: 100
+    maxStroke: 100,
+    patternMode: 'consistent',
+    blockSizeSec: 0
   });
 
   // Handle Video Upload

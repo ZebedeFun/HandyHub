@@ -3,16 +3,18 @@ import { Settings, Play, Download } from 'lucide-react';
 
 export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload }) {
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    let numValue = parseInt(value, 10);
+    const { name, value, type } = e.target;
+    
+    // For selects, value is string. For range, parse to int
+    let parsedValue = type === 'range' ? parseInt(value, 10) : value;
     
     // Ensure minStroke <= maxStroke
-    if (name === 'minStroke' && numValue > params.maxStroke) numValue = params.maxStroke;
-    if (name === 'maxStroke' && numValue < params.minStroke) numValue = params.minStroke;
+    if (name === 'minStroke' && parsedValue > params.maxStroke) parsedValue = params.maxStroke;
+    if (name === 'maxStroke' && parsedValue < params.minStroke) parsedValue = params.minStroke;
 
     setParams(prev => ({
       ...prev,
-      [name]: numValue
+      [name]: parsedValue
     }));
   };
 
@@ -25,6 +27,37 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
 
       <div className="flex-1 overflow-y-auto pr-2 space-y-6">
         
+        {/* Pattern Mode */}
+        <div>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">Pattern Mode</label>
+          <select 
+            name="patternMode" 
+            value={params.patternMode} 
+            onChange={handleChange}
+            className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-900 dark:text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 outline-none transition-colors"
+          >
+            <option value="consistent">Consistent</option>
+            <option value="build">Build Over Time</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            {params.patternMode === 'build' ? 'Starts slow and soft, building up to your chosen speed/intensity.' : 'Maintains the chosen speed and intensity throughout.'}
+          </p>
+        </div>
+
+        {/* Block Size */}
+        <div>
+          <div className="flex justify-between mb-1">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Block Size</label>
+            <span className="text-sm text-gray-500">{params.blockSizeSec === 0 ? 'Off' : `${params.blockSizeSec}s`}</span>
+          </div>
+          <input 
+            type="range" min="0" max="60" name="blockSizeSec" 
+            value={params.blockSizeSec} onChange={handleChange}
+            className="w-full accent-blue-500"
+          />
+          <p className="text-xs text-gray-500 mt-1">Holds a consistent speed/stroke for this duration before switching.</p>
+        </div>
+
         {/* Base Speed */}
         <div>
           <div className="flex justify-between mb-1">
