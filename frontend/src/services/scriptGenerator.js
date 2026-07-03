@@ -59,17 +59,9 @@ export function generateProceduralScript(durationMs, params) {
     // Pick new stroke parameters if we are past the current block's duration
     // Also force re-evaluation if we just entered the cooldown phase
     if (currentTime >= blockEndTime || (inCooldown && blockGap < 500)) {
-      // Pick a gap (speed)
-      const randFactorGap = (Math.random() * 2 - 1) * (randomness / 10) * 0.8;
       
-      // Speed mapping: 1 = 2000ms (very slow), 10 = 30ms (insanely fast)
-      const maxGap = 2000;
-      const minGap = 30;
-      const avgGap = maxGap - ((effectiveSpeed - 1) / 9) * (maxGap - minGap);
-      blockGap = Math.max(minGap, Math.min(4000, avgGap * (1 + randFactorGap)));
-      
-      // Pick a movement size (intensity)
-      // Intensity mapping: 1 = 5% of range (tiny movements), 10 = 100% of range
+      // 1. Pick a movement size (intensity)
+      // Intensity mapping: 1 = 5% of range, 10 = 100% of range
       const minInt = 0.05;
       const maxInt = 1.0;
       const intensityRatio = minInt + ((effectiveIntensity - 1) / 9) * (maxInt - minInt);
@@ -77,6 +69,23 @@ export function generateProceduralScript(durationMs, params) {
       const baseMovement = range * intensityRatio;
       const randFactorPos = (Math.random() * 2 - 1) * (randomness / 10) * 0.2;
       blockMovementSize = Math.max(0, Math.min(range, baseMovement + (range * randFactorPos)));
+
+      // 2. Pick a Target Speed (points per second)
+      // Max physical speed of the device is ~400 points/sec. 
+      // Speed mapping: 1 = 40 pts/sec, 10 = 400 pts/sec
+      const minTargetSpeed = 40;
+      const maxTargetSpeed = 400;
+      const targetSpeed = minTargetSpeed + ((effectiveSpeed - 1) / 9) * (maxTargetSpeed - minTargetSpeed);
+      
+      // 3. Add randomness to target speed
+      const randFactorSpeed = (Math.random() * 2 - 1) * (randomness / 10) * 0.3; 
+      const finalSpeed = Math.max(10, targetSpeed * (1 + randFactorSpeed));
+      
+      // 4. Calculate required time (gap) to achieve that speed for the chosen movement size
+      const calculatedGap = (blockMovementSize / finalSpeed) * 1000;
+      
+      // 5. Clamp gap to prevent locking up the hardware (min 50ms, max 4000ms)
+      blockGap = Math.max(50, Math.min(4000, calculatedGap));
       
       // Set the end time for this block of consistent movement
       if (inCooldown) {

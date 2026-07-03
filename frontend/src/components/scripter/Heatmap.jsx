@@ -5,15 +5,15 @@ import React, { useRef, useEffect } from 'react';
 const getSpeedColor = (deltaPos, deltaMs) => {
   if (deltaMs === 0) return '#3b82f6'; // blue-500 fallback
   
-  // Pos difference is up to 100. Time diff is usually 30-2000 ms.
+  // Pos difference is up to 100. Time diff is usually 100-2000 ms.
   // Speed units: points per second.
   const speed = Math.abs(deltaPos) / (deltaMs / 1000); 
   
-  // Adjusted thresholds for much faster speeds (max can be ~3000)
-  if (speed < 150) return '#3b82f6'; // blue-500
-  if (speed < 400) return '#10b981'; // emerald-500
-  if (speed < 800) return '#eab308'; // yellow-500
-  if (speed < 1500) return '#f97316'; // orange-500
+  // Let's say speed 0 = blue, speed > 200 = red, mid = yellow/green
+  if (speed < 50) return '#3b82f6'; // blue-500
+  if (speed < 100) return '#10b981'; // emerald-500
+  if (speed < 150) return '#eab308'; // yellow-500
+  if (speed < 200) return '#f97316'; // orange-500
   return '#ef4444'; // red-500
 };
 
