@@ -47,6 +47,8 @@ export const startHamp = async (connectionKey) => {
   }
 };
 
+let isHampActive = false;
+
 /**
  * Sets the speed of TheHandy via HAMP.
  * @param {string} connectionKey - The device connection key.
@@ -57,7 +59,10 @@ export const setSpeed = async (connectionKey, speedPercentage) => {
   const velocity = Math.min(100, Math.max(0, parseInt(speedPercentage, 10)));
   
   try {
-    await startHamp(connectionKey); // Ensure mode is running before applying velocity
+    if (!isHampActive) {
+      await startHamp(connectionKey); // Ensure mode is running
+      isHampActive = true;
+    }
     await fetch(`${API_BASE}/hamp/velocity`, {
       method: 'PUT',
       headers: getHeaders(connectionKey),
