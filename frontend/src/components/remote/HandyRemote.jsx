@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
+import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX, Flame, CheckCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone } from '../../services/handyService';
 import XYPad from './XYPad';
@@ -238,6 +238,18 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   
   const [activePreset, setActivePreset] = useState(null);
   const [testMode, setTestMode] = useState(false);
+  const [climaxState, setClimaxState] = useState('idle');
+
+  const handleClimaxClick = () => {
+    stopRhythm();
+    if (climaxState === 'idle') {
+      sendToDeviceRef.current(80, 100);
+      setClimaxState('climaxing');
+    } else {
+      sendToDeviceRef.current(20, 40);
+      setClimaxState('idle');
+    }
+  };
 
   // Load Settings
   useEffect(() => {
@@ -620,14 +632,23 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
           </div>
         )}
 
-        {/* STOP / PANIC Button */}
-        <button 
-          onClick={handleStop}
-          className="w-full py-6 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-2xl shadow-[0_10px_25px_rgba(220,38,38,0.5)] flex items-center justify-center gap-3 transition-transform active:scale-95 mb-10"
-        >
-          <Power size={32} />
-          <span className="text-2xl font-black tracking-widest uppercase">Stop</span>
-        </button>
+        {/* Action Buttons */}
+        <div className="flex gap-4 mb-10">
+          <button 
+            onClick={handleStop}
+            className="flex-1 py-6 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-2xl shadow-[0_10px_25px_rgba(220,38,38,0.5)] flex items-center justify-center gap-3 transition-transform active:scale-95"
+          >
+            <Power size={32} />
+            <span className="text-2xl font-black tracking-widest uppercase">Stop</span>
+          </button>
+          <button 
+            onClick={handleClimaxClick}
+            className={`flex-1 py-6 text-white rounded-2xl flex items-center justify-center gap-3 transition-transform active:scale-95 ${climaxState === 'idle' ? 'bg-orange-500 hover:bg-orange-600 shadow-[0_10px_25px_rgba(249,115,22,0.5)]' : 'bg-purple-500 hover:bg-purple-600 shadow-[0_10px_25px_rgba(168,85,247,0.5)]'}`}
+          >
+            {climaxState === 'idle' ? <Flame size={32} /> : <CheckCircle size={32} />}
+            <span className="text-2xl font-black tracking-widest uppercase">{climaxState === 'idle' ? 'Climax!' : 'Done!'}</span>
+          </button>
+        </div>
 
         {/* Limits Configuration */}
         <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 opacity-80 hover:opacity-100 transition-opacity">

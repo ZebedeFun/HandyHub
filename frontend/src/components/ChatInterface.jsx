@@ -522,7 +522,7 @@ export default function ChatInterface({ settings }) {
                       className={`flex items-center justify-center space-x-2 text-white px-8 py-4 rounded-full font-bold text-lg transition-all transform hover:scale-105 shadow-lg ${finishState === 'idle' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-purple-500 hover:bg-purple-600'}`}
                     >
                       {finishState === 'idle' ? <Flame size={24} fill="currentColor" /> : <CheckCircle size={24} fill="currentColor" />}
-                      <span>{finishState === 'idle' ? 'Finish!' : 'and Done!'}</span>
+                      <span>{finishState === 'idle' ? 'Climax!' : 'and Done!'}</span>
                     </button>
                     <button 
                         onClick={emergencyStop}
