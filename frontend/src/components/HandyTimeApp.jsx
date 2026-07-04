@@ -86,7 +86,7 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900 transition-colors">
       <header className="bg-white dark:bg-gray-800 shadow-sm dark:shadow-none border-b border-transparent dark:border-gray-700 p-4 flex justify-between items-center z-10 transition-colors">
-        <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-tight">HandyTime Chat</h1>
+        <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-tight">AI Partner</h1>
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <Activity size={18} className={deviceStatus === 'Connected' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'} />

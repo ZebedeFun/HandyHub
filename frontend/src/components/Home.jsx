@@ -37,7 +37,7 @@ export default function Home({ isDarkMode, toggleTheme }) {
           <div className="bg-pink-100 dark:bg-pink-900/30 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 text-pink-500 dark:text-pink-400 group-hover:scale-110 transition-transform">
             <MessageSquare size={32} />
           </div>
-          <h2 className="text-2xl font-bold mb-3">Handy Time</h2>
+          <h2 className="text-2xl font-bold mb-3">AI Partner</h2>
           <p className="text-gray-600 dark:text-gray-400">
             An interactive chat experience with your AI companion that physically connects with your device.
           </p>

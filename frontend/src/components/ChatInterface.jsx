@@ -3,6 +3,12 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Send, Mic, Bot, User, Sliders, Zap, Volume2, VolumeX } from 'lucide-react';
 import { setSpeed, setStrokeZone } from '../services/handyService';
 
+const PERSONAS = [
+  { id: 'gentle', name: 'Gentle Guide', prompt: 'You are a gentle, caring, and encouraging guide. Use [HANDY_SPEED: 10-30] and [HANDY_STROKE: 30-60] to keep things slow and sensual. Occasionally pause or stop.' },
+  { id: 'tease', name: 'Relentless Tease', prompt: 'You are a relentless tease. You love bringing the user to the edge and then dropping the speed. Alternate between [HANDY_SPEED: 80-100] and suddenly dropping to [HANDY_SPEED: 0].' },
+  { id: 'dominant', name: 'Strict Dominant', prompt: 'You are a strict, commanding dominant. You give clear, absolute orders. Use fast speeds [HANDY_SPEED: 80-100] and full strokes [HANDY_STROKE: 100] to punish, and low speeds to make them wait.' }
+];
+
 export default function ChatInterface({ settings }) {
   const [messages, setMessages] = useState([
     { role: 'assistant', text: "Hey there... I've been waiting for you." }
@@ -14,6 +20,9 @@ export default function ChatInterface({ settings }) {
   const [isMuted, setIsMuted] = useState(false);
   const [showHandyPanel, setShowHandyPanel] = useState(false);
   const [handyState, setHandyState] = useState({ speed: 0, stroke: 100 });
+  const [selectedPersona, setSelectedPersona] = useState(PERSONAS[0]);
+  const [isPlayingQueue, setIsPlayingQueue] = useState(false);
+  
   const messagesEndRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -25,6 +34,12 @@ export default function ChatInterface({ settings }) {
   const isRecordingRef = useRef(isRecording);
   const currentAudioRef = useRef(null);
   const isRecordingIntentRef = useRef(false);
+  const settingsRef = useRef(settings);
+  
+  const audioQueueRef = useRef([]);
+  const isProcessingQueueRef = useRef(false);
+
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
 
   useEffect(() => {
     if (currentAudioRef.current) {
@@ -135,10 +150,10 @@ export default function ChatInterface({ settings }) {
     setIsRecording(false);
   };
 
-  // TTS: Playback AI Response
-  const playTTS = async (text) => {
-    if (isMuted) return;
-    if (settings.ttsProvider !== 'Kokoro' && !settings.googleApiKey) return;
+  // Audio Queue System
+  const fetchTTSAudio = async (text) => {
+    const s = settingsRef.current;
+    if (s.ttsProvider !== 'Kokoro' && !s.googleApiKey) return null;
     
     try {
       const res = await fetch('/api/tts', {
@@ -146,25 +161,81 @@ export default function ChatInterface({ settings }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           text, 
-          ttsProvider: settings.ttsProvider,
-          googleApiKey: settings.googleApiKey, 
-          googleTtsType: settings.googleTtsType, 
-          googleVoice: settings.googleVoice,
-          kokoroUrl: settings.kokoroUrl,
-          kokoroVoice: settings.kokoroVoice
+          ttsProvider: s.ttsProvider,
+          googleApiKey: s.googleApiKey, 
+          googleTtsType: s.googleTtsType, 
+          googleVoice: s.googleVoice,
+          kokoroUrl: s.kokoroUrl,
+          kokoroVoice: s.kokoroVoice
         })
       });
       if (!res.ok) throw new Error('TTS fetch failed');
-      const audio = new Audio(URL.createObjectURL(await res.blob()));
-      audio.volume = volume;
-      currentAudioRef.current = audio;
-      audio.play();
-      audio.onended = () => {
-        if (currentAudioRef.current === audio) currentAudioRef.current = null;
-      };
+      return URL.createObjectURL(await res.blob());
     } catch (err) {
-      console.error('TTS Playback Error:', err);
+      console.error('TTS Fetch Error:', err);
+      return null;
     }
+  };
+
+  const pushToAudioQueue = (item) => {
+    audioQueueRef.current.push(item);
+    processAudioQueue();
+  };
+
+  const processAudioQueue = async () => {
+    if (isProcessingQueueRef.current) return;
+    isProcessingQueueRef.current = true;
+    setIsPlayingQueue(true);
+
+    while (audioQueueRef.current.length > 0) {
+      const item = audioQueueRef.current.shift();
+      const s = settingsRef.current;
+      
+      const executeActions = () => {
+        for (const action of item.actions) {
+          if (action.type === 'SPEED') {
+            setSpeed(s.handyKey, action.val);
+            setHandyState(prev => ({ ...prev, speed: action.val }));
+          } else if (action.type === 'STROKE') {
+            setStrokeZone(s.handyKey, 0, action.val);
+            setHandyState(prev => ({ ...prev, stroke: action.val }));
+          }
+        }
+      };
+
+      const audioUrl = await fetchTTSAudio(item.text);
+
+      if (!audioUrl) {
+        executeActions();
+        // Simulate reading delay (roughly 15 chars per second)
+        const delayMs = Math.max(1000, (item.text.length / 15) * 1000);
+        await new Promise(r => setTimeout(r, delayMs));
+        continue;
+      }
+
+      await new Promise((resolve) => {
+        const audio = new Audio(audioUrl);
+        audio.volume = isMuted ? 0 : volume;
+        currentAudioRef.current = audio;
+        
+        audio.onplay = () => {
+          executeActions();
+        };
+        audio.onended = () => resolve();
+        audio.onerror = () => resolve();
+        
+        audio.play().catch((err) => {
+          console.error("Audio playback prevented:", err);
+          executeActions();
+          resolve();
+        });
+      });
+      
+      currentAudioRef.current = null;
+    }
+
+    isProcessingQueueRef.current = false;
+    setIsPlayingQueue(false);
   };
 
   const handleSend = async (overrideText = null, isAutoContinue = false) => {
@@ -195,6 +266,8 @@ export default function ChatInterface({ settings }) {
     setMessages([...newMessages, { role: 'assistant', text: '' }]);
     
     try {
+        const finalSystemPrompt = `${settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha')}\n\nPersona Instructions: ${selectedPersona.prompt}`;
+
         const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -204,7 +277,7 @@ export default function ChatInterface({ settings }) {
                 llmUrl: settings.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
                 llmModel: settings.llmModel || 'mistralai/mistral-7b-instruct:free',
                 llmTemperature: parseFloat(settings.llmTemperature) || 0.7,
-                systemPrompt: settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha')
+                systemPrompt: finalSystemPrompt
             })
         });
 
@@ -214,7 +287,9 @@ export default function ChatInterface({ settings }) {
         const decoder = new TextDecoder('utf-8');
         
         let streamBuffer = '';
-        let visibleOutput = '';
+        let ttsBuffer = '';
+        let textToDisplay = '';
+        let currentActions = [];
 
         while (true) {
             const { done, value } = await reader.read();
@@ -237,13 +312,16 @@ export default function ChatInterface({ settings }) {
                             
                             const bracketIndex = streamBuffer.indexOf('[');
                             if (bracketIndex === -1) {
-                                visibleOutput += streamBuffer;
+                                ttsBuffer += streamBuffer;
+                                textToDisplay += streamBuffer;
                                 streamBuffer = '';
                                 break;
                             }
                             
                             if (bracketIndex > 0) {
-                                visibleOutput += streamBuffer.substring(0, bracketIndex);
+                                const textBeforeTag = streamBuffer.substring(0, bracketIndex);
+                                ttsBuffer += textBeforeTag;
+                                textToDisplay += textBeforeTag;
                                 streamBuffer = streamBuffer.substring(bracketIndex);
                                 progress = true;
                                 continue;
@@ -257,29 +335,30 @@ export default function ChatInterface({ settings }) {
                                 if (match) {
                                     const type = match[1];
                                     const val = parseInt(match[2], 10);
-                                    
-                                    if (type === 'SPEED') {
-                                        setSpeed(settings.handyKey, val);
-                                        setHandyState(prev => ({ ...prev, speed: val }));
-                                    }
-                                    if (type === 'STROKE') {
-                                        setStrokeZone(settings.handyKey, 0, val);
-                                        setHandyState(prev => ({ ...prev, stroke: val }));
-                                    }
+                                    currentActions.push({ type, val });
                                     
                                     streamBuffer = streamBuffer.substring(closeBracketIndex + 1);
                                     progress = true;
                                 } else {
-                                    visibleOutput += '[';
+                                    ttsBuffer += '[';
+                                    textToDisplay += '[';
                                     streamBuffer = streamBuffer.substring(1);
                                     progress = true;
                                 }
                             }
                         }
 
-                        let textToDisplay = visibleOutput;
-                        if (!streamBuffer.startsWith('[HANDY_') && !'[HANDY_'.startsWith(streamBuffer)) {
-                            textToDisplay += streamBuffer;
+                        // Check for sentence boundaries to chunk audio
+                        const boundaryMatch = ttsBuffer.match(/([.!?\n])\s+/);
+                        if (boundaryMatch) {
+                          const boundaryIndex = boundaryMatch.index + boundaryMatch[1].length;
+                          const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
+                          ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
+                          
+                          if (sentence.length > 0) {
+                            pushToAudioQueue({ text: sentence, actions: [...currentActions] });
+                            currentActions = [];
+                          }
                         }
 
                         setMessages(prev => {
@@ -297,18 +376,17 @@ export default function ChatInterface({ settings }) {
         
         // After streaming ends, flush anything remaining
         if (streamBuffer) {
-            visibleOutput += streamBuffer;
+            ttsBuffer += streamBuffer;
+            textToDisplay += streamBuffer;
             setMessages(prev => {
                 const updated = [...prev];
-                updated[updated.length - 1].text = visibleOutput;
+                updated[updated.length - 1].text = textToDisplay;
                 return updated;
             });
         }
 
-        // Play the generated text via TTS when done
-        const canPlayTTS = settings.ttsProvider === 'Kokoro' ? !!settings.kokoroUrl : !!settings.googleApiKey;
-        if (visibleOutput && canPlayTTS) {
-            playTTS(visibleOutput);
+        if (ttsBuffer.trim().length > 0) {
+            pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
         }
         
     } catch (err) {
@@ -322,8 +400,19 @@ export default function ChatInterface({ settings }) {
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 max-w-4xl mx-auto w-full shadow-lg border-x border-transparent dark:border-gray-800 transition-colors">
       <div className="px-4 py-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 flex justify-between items-center transition-colors overflow-x-auto">
-        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:block">Chat Session</span>
+        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:block">AI Partner</span>
         <div className="flex items-center space-x-3 sm:space-x-4 ml-auto">
+          <div className="flex items-center space-x-2 border-r pr-3 sm:pr-4 border-gray-200 dark:border-gray-700">
+            <select
+              value={selectedPersona.id}
+              onChange={(e) => setSelectedPersona(PERSONAS.find(p => p.id === e.target.value))}
+              className="bg-gray-100 dark:bg-gray-700 border-none text-sm rounded-lg px-2 py-1 text-gray-700 dark:text-gray-300 outline-none"
+            >
+              {PERSONAS.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
           <div className="flex items-center space-x-1 sm:space-x-2">
             <button 
               onClick={() => setIsMuted(!isMuted)}
