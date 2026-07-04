@@ -50,7 +50,7 @@ export default function RemoteSimulator({ speed, deviceMin, deviceMax }) {
   }, [speed, deviceMin, deviceMax]);
 
   return (
-    <div className="flex justify-center items-center h-32 w-full mt-4">
+    <div className="flex justify-center items-center h-12 w-full my-2">
       {/* The Track (representing the full 0-100 device body) */}
       <div className="w-64 h-8 bg-gray-800 rounded-full relative border-2 border-gray-700 shadow-inner flex items-center overflow-hidden">
         
