@@ -48,7 +48,9 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
 
       recognitionRef.current.onerror = (event) => {
         console.error("Speech recognition error", event.error);
-        if (event.error === 'not-allowed') setIsVoiceActive(false);
+        if (['not-allowed', 'network', 'service-not-allowed', 'audio-capture'].includes(event.error)) {
+          setIsVoiceActive(false);
+        }
       };
 
       recognitionRef.current.onend = () => {
