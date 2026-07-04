@@ -12,7 +12,7 @@ const getSpeedColor = (deltaPos, deltaMs) => {
   return '#ef4444';
 };
 
-export default function Heatmap({ actions, durationMs, currentTimeMs, onRegenerateSelection }) {
+export default function Heatmap({ actions, durationMs, currentTimeMs, onRegenerateSelection, onModifySelection }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   
@@ -126,7 +126,7 @@ export default function Heatmap({ actions, durationMs, currentTimeMs, onRegenera
       
       {/* Floating Toolbar for active selection */}
       {hasSelection && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-gray-800 border border-gray-600 rounded-full shadow-lg px-3 py-1.5 flex items-center gap-3">
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 bg-gray-800 border border-gray-600 rounded-full shadow-lg px-3 py-1.5 flex items-center gap-3 whitespace-nowrap">
           <span className="text-xs text-gray-300 font-mono">
             {(start/1000).toFixed(1)}s - {(end/1000).toFixed(1)}s
           </span>
@@ -140,9 +140,19 @@ export default function Heatmap({ actions, durationMs, currentTimeMs, onRegenera
           >
             <RefreshCw size={12} /> Regenerate Segment
           </button>
+          
+          <div className="flex gap-1 ml-2 border-l border-gray-600 pl-3">
+            <button onClick={() => onModifySelection(start, end, 'faster')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Faster</button>
+            <button onClick={() => onModifySelection(start, end, 'slower')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Slower</button>
+            <button onClick={() => onModifySelection(start, end, 'higher')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Higher</button>
+            <button onClick={() => onModifySelection(start, end, 'lower')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Lower</button>
+            <button onClick={() => onModifySelection(start, end, 'longer')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Longer</button>
+            <button onClick={() => onModifySelection(start, end, 'shorter')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Shorter</button>
+          </div>
+
           <button 
             onClick={() => { setSelectionStart(null); setSelectionEnd(null); }}
-            className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-gray-700 transition-colors"
+            className="text-gray-400 hover:text-white p-1 rounded-full hover:bg-gray-700 transition-colors ml-2"
           >
             <X size={14} />
           </button>
