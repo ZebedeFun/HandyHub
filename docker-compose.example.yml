@@ -10,14 +10,15 @@ services:
     ports:
       - "3001:3001"
     restart: unless-stopped
-    networks:
-      - nginx-proxy-nw
     volumes:
+      # Persist settings across container rebuilds. Create this dir first:
+      # mkdir -p ./data
       - ./data:/app/backend/data
     environment:
       - NODE_ENV=production
       - PORT=3001
 
-networks:
-  nginx-proxy-nw:
-    external: true
+# Example: Uncomment and customise to connect to an nginx proxy network
+# networks:
+#   nginx-proxy-nw:
+#     external: true

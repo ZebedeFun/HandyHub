@@ -1,0 +1,9 @@
+node_modules/
+.env
+
+# Docker compose is local - customise from docker-compose.example.yml
+docker-compose.yml
+
+# Persistent data directory (settings etc) - never commit
+data/
+backend/data/
