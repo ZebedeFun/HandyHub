@@ -183,6 +183,7 @@ export default function ChatInterface({ settings }) {
           return;
       }
       setIsActive(true);
+      isActiveRef.current = true; // Update ref synchronously so generateNextScene doesn't abort
       if (messages.length === 0) {
           generateNextScene(true);
       } else {
