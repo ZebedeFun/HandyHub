@@ -54,19 +54,18 @@ export default function RemoteSimulator({ speed, deviceMin, deviceMax }) {
       <div className="w-64 h-8 bg-gray-800 rounded-full relative border-2 border-gray-700 shadow-inner flex items-center overflow-hidden">
         
         {/* Draw faint limit lines so user can see their boundaries */}
-        <div className="absolute top-0 bottom-0 border-l-2 border-dashed border-gray-500 z-10" style={{ left: `${deviceMin}%` }}></div>
-        <div className="absolute top-0 bottom-0 border-r-2 border-dashed border-gray-500 z-10" style={{ right: `${100 - deviceMax}%` }}></div>
+        <div className="absolute top-0 bottom-0 border-l-2 border-dashed border-gray-500 z-10" style={{ left: `${deviceMin * 0.8}%` }}></div>
+        <div className="absolute top-0 bottom-0 border-r-2 border-dashed border-gray-500 z-10" style={{ right: `${100 - (deviceMax * 0.8 + 20)}%` }}></div>
         
         {/* Safe Zone Highlight */}
-        <div className="absolute h-full bg-gray-700/50" style={{ left: `${deviceMin}%`, right: `${100 - deviceMax}%` }}></div>
+        <div className="absolute h-full bg-gray-700/50" style={{ left: `${deviceMin * 0.8}%`, right: `${100 - (deviceMax * 0.8 + 20)}%` }}></div>
 
         {/* The Sleeve (moving part) */}
         <div 
-          className="absolute h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.7)] flex flex-col justify-center z-20"
+          className="absolute h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.7)] flex flex-col justify-center z-20 transition-none"
           style={{ 
             width: '20%', // visual width of sleeve
-            left: `${currentPos}%`,
-            transform: `translateX(-10%)`, // Center it on the position (half of 20%)
+            left: `${currentPos * 0.8}%`,
           }}
         >
           {/* Stylized ribs on the sleeve */}
