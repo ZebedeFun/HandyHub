@@ -31,9 +31,14 @@ export default function ChatInterface({ settings }) {
   const audioQueueRef = useRef([]);
   const isProcessingQueueRef = useRef(false);
 
+  const volumeRef = useRef(volume);
+  const isMutedRef = useRef(isMuted);
+
   useEffect(() => { settingsRef.current = settings; }, [settings]);
   useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
   useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { volumeRef.current = volume; }, [volume]);
+  useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
   useEffect(() => {
     if (currentAudioRef.current) {
@@ -142,7 +147,7 @@ export default function ChatInterface({ settings }) {
 
       await new Promise((resolve) => {
         const audio = new Audio(audioUrl);
-        audio.volume = isMuted ? 0 : volume;
+        audio.volume = isMutedRef.current ? 0 : volumeRef.current;
         currentAudioRef.current = audio;
         
         audio.onplay = () => {
