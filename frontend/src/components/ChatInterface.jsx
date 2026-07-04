@@ -175,12 +175,23 @@ export default function ChatInterface({ settings }) {
         }
       };
 
-      const audioUrl = await item.audioUrlPromise;
+      const audioUrl = item.audioUrlPromise ? await item.audioUrlPromise : null;
+
+      if (item.isSceneDelay) {
+        await new Promise(r => setTimeout(r, item.delayMs));
+        if (isActiveRef.current && !isStreamingRef.current && audioQueueRef.current.length < 2) {
+            generateNextScene();
+        }
+        continue;
+      }
 
       if (!audioUrl) {
         executeActions();
-        const delayMs = Math.max(1000, (item.text.length / 15) * 1000);
+        const delayMs = Math.max(1000, ((item.text || '').length / 15) * 1000);
         await new Promise(r => setTimeout(r, delayMs));
+        if (isActiveRef.current && !isStreamingRef.current && audioQueueRef.current.length < 2) {
+            generateNextScene();
+        }
         continue;
       }
 
@@ -204,20 +215,17 @@ export default function ChatInterface({ settings }) {
       });
       
       currentAudioRef.current = null;
+      
+      if (isActiveRef.current && !isStreamingRef.current && audioQueueRef.current.length < 2) {
+          generateNextScene();
+      }
     }
 
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
     
-    // Auto-loop if active
     if (isActiveRef.current && !isStreamingRef.current) {
-        const delay = (settingsRef.current.sceneDelay || 2.5) * 1000;
-        if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
-        loopTimerRef.current = setTimeout(() => {
-            if (isActiveRef.current) {
-                generateNextScene();
-            }
-        }, delay);
+        generateNextScene();
     }
   };
 
@@ -240,6 +248,12 @@ export default function ChatInterface({ settings }) {
     
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
     isStreamingRef.current = true;
+
+    if (!isFirst && !overridePrompt) {
+        const delay = (settingsRef.current.sceneDelay || 2.5) * 1000;
+        audioQueueRef.current.push({ text: "", isSceneDelay: true, delayMs: delay, actions: [] });
+        processAudioQueue();
+    }
 
     let apiMessages = [];
 
@@ -385,13 +399,8 @@ export default function ChatInterface({ settings }) {
         console.error("Chat Error:", err);
     } finally {
         isStreamingRef.current = false;
-        // If queue isn't processing anymore (e.g., nothing was added), we should trigger next loop immediately
-        if (isActiveRef.current && audioQueueRef.current.length === 0 && !isProcessingQueueRef.current) {
-            const delay = (settingsRef.current.sceneDelay || 2.5) * 1000;
-            if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
-            loopTimerRef.current = setTimeout(() => {
-                if (isActiveRef.current) generateNextScene();
-            }, delay);
+        if (isActiveRef.current && audioQueueRef.current.length < 2) {
+            generateNextScene();
         }
     }
   };
