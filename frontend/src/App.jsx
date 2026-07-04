@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Home from './components/Home';
 import HandyTimeApp from './components/HandyTimeApp';
 import HandyScripter from './components/scripter/HandyScripter';
+import HandyRemote from './components/remote/HandyRemote';
 
 export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -35,6 +36,7 @@ export default function App() {
         <Route path="/" element={<Home isDarkMode={isDarkMode} toggleTheme={toggleTheme} />} />
         <Route path="/chat" element={<HandyTimeApp isDarkMode={isDarkMode} toggleTheme={toggleTheme} />} />
         <Route path="/scripter" element={<HandyScripter isDarkMode={isDarkMode} toggleTheme={toggleTheme} />} />
+        <Route path="/remote" element={<HandyRemote isDarkMode={isDarkMode} toggleTheme={toggleTheme} />} />
       </Routes>
     </Router>
   );
