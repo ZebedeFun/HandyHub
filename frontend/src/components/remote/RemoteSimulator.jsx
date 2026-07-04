@@ -20,8 +20,9 @@ export default function RemoteSimulator({ speed, deviceMin, deviceMax }) {
       const strokeDistance = deviceMax - deviceMin;
 
       if (speed > 0 && strokeDistance > 0) {
-        // Map speed 1-100 to 0.5Hz to 5Hz
-        const cyclesPerSecond = 0.5 + (speed / 100) * 4.5; 
+        // Map speed 0-100 to a more realistic visual curve (0.2Hz to 3.5Hz)
+        // Using a power curve makes lower speeds look appropriately gentle.
+        const cyclesPerSecond = 0.2 + Math.pow(speed / 100, 1.5) * 3.3; 
         const percentPerSecond = cyclesPerSecond * 2 * strokeDistance; // distance covered per second
         
         const movement = (percentPerSecond * dt) / 1000;
