@@ -344,7 +344,7 @@ export default function ChatInterface({ settings }) {
                             }
                         }
 
-                        const boundaryMatch = ttsBuffer.match(/([.!?\n])\s+/);
+                        const boundaryMatch = ttsBuffer.match(/([.!?,\n;])\s+/);
                         if (boundaryMatch) {
                           const boundaryIndex = boundaryMatch.index + boundaryMatch[1].length;
                           const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
