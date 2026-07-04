@@ -177,6 +177,26 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
       console.log(`[Voice Command] Matched "stop/pause". Rationale: User requested stop. Stopping device.`);
       stopRhythm();
       sendToDeviceRef.current(0, padPosRef.current.stroke);
+    } else if (transcript.includes('faster')) {
+      console.log(`[Voice Command] Matched "faster". Increasing current speed by 20%.`);
+      stopRhythm();
+      const newSpeed = Math.min(100, padPosRef.current.speed + 20);
+      sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
+    } else if (transcript.includes('slower')) {
+      console.log(`[Voice Command] Matched "slower". Decreasing current speed by 20%.`);
+      stopRhythm();
+      const newSpeed = Math.max(0, padPosRef.current.speed - 20);
+      sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
+    } else if (transcript.includes('deeper')) {
+      console.log(`[Voice Command] Matched "deeper". Increasing current stroke by 20%.`);
+      stopRhythm();
+      const newStroke = Math.min(100, padPosRef.current.stroke + 20);
+      sendToDeviceRef.current(padPosRef.current.speed, newStroke);
+    } else if (transcript.includes('shallower') || transcript.includes('shorter')) {
+      console.log(`[Voice Command] Matched "shallower". Decreasing current stroke by 20%.`);
+      stopRhythm();
+      const newStroke = Math.max(0, padPosRef.current.stroke - 20);
+      sendToDeviceRef.current(padPosRef.current.speed, newStroke);
     } else if (transcript.includes('tease')) {
       console.log(`[Voice Command] Matched "tease". Triggering Tease preset.`);
       presetTease();
@@ -204,16 +224,6 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     } else if (transcript.includes('organic') || transcript.includes('magic')) {
       console.log(`[Voice Command] Matched "organic/magic". Triggering Organic preset.`);
       presetOrganic();
-    } else if (transcript.includes('faster')) {
-      console.log(`[Voice Command] Matched "faster". Increasing current speed by 20%.`);
-      stopRhythm();
-      const newSpeed = Math.min(100, padPosRef.current.speed + 20);
-      sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
-    } else if (transcript.includes('slower')) {
-      console.log(`[Voice Command] Matched "slower". Decreasing current speed by 20%.`);
-      stopRhythm();
-      const newSpeed = Math.max(0, padPosRef.current.speed - 20);
-      sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
     }
   };
 
