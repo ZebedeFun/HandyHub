@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone } from '../../services/handyService';
 import XYPad from './XYPad';
@@ -25,8 +25,84 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   const [limitMaxSpeed, setLimitMaxSpeed] = useState(100);
   const [limitMinDepth, setLimitMinDepth] = useState(0);
   const [limitMaxDepth, setLimitMaxDepth] = useState(100);
-  const [anchor, setAnchor] = useState('top');
-  
+  const [anchor, setAnchor] = useState('bottom'); 
+
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const recognitionRef = useRef(null);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition && isVoiceActive) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = false;
+      recognitionRef.current.lang = 'en-US';
+
+      recognitionRef.current.onresult = (event) => {
+        const lastResult = event.results[event.results.length - 1];
+        if (lastResult.isFinal) {
+          const transcript = lastResult[0].transcript.toLowerCase().trim();
+          handleVoiceCommand(transcript);
+        }
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error("Speech recognition error", event.error);
+        if (event.error === 'not-allowed') setIsVoiceActive(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        // Automatically restart if still meant to be active
+        if (isVoiceActive && recognitionRef.current) {
+          try { recognitionRef.current.start(); } catch (e) {}
+        }
+      };
+
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        console.error("Could not start recognition", e);
+      }
+    }
+    
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.onend = null; // prevent restart loop
+        recognitionRef.current.stop();
+      }
+    };
+  }, [isVoiceActive]);
+
+  const handleVoiceCommand = (transcript) => {
+    console.log("Voice Command Recognized:", transcript);
+    if (transcript.includes('stop') || transcript.includes('pause')) {
+      stopRhythm();
+      sendToDeviceRef.current(0, padPosRef.current.stroke);
+    } else if (transcript.includes('tease')) {
+      presetTease();
+    } else if (transcript.includes('blow')) {
+      presetBlow();
+    } else if (transcript.includes('deep') || transcript.includes('slow')) {
+      presetSlowDeep();
+    } else if (transcript.includes('pound') || transcript.includes('hard')) {
+      presetPounding();
+    } else if (transcript.includes('flutter') || transcript.includes('vibrate')) {
+      presetVibrate();
+    } else if (transcript.includes('edge') || transcript.includes('edging')) {
+      presetEdging();
+    } else if (transcript.includes('mix')) {
+      presetMix();
+    } else if (transcript.includes('random')) {
+      presetRandom();
+    } else if (transcript.includes('organic') || transcript.includes('magic')) {
+      presetOrganic();
+    } else if (transcript.includes('faster')) {
+      setLimitMaxSpeed(prev => Math.min(100, prev + 20));
+    } else if (transcript.includes('slower')) {
+      setLimitMaxSpeed(prev => Math.max(0, prev - 20));
+    }
+  };
+
   // Random Mode
   const [randomDuration, setRandomDuration] = useState(10);
   const randomDurationRef = useRef(10);
@@ -242,6 +318,38 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     }, 250);
   };
 
+  // --- Organic Pattern ---
+  const presetOrganic = () => {
+    stopRhythm();
+    setActivePreset('organic');
+    
+    // Generate random phase shifts so every time it starts, the wave shape is totally unique
+    const phaseX = [Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2];
+    const phaseY = [Math.random() * Math.PI * 2, Math.random() * Math.PI * 2, Math.random() * Math.PI * 2];
+    let step = 0;
+    
+    rhythmInterval.current = setInterval(() => {
+      // Unpredictable time stepping creates organic acceleration and deceleration
+      step += 0.03 + Math.random() * 0.04;
+      
+      const noise = (t, phases) => {
+        // Layered sine waves approximate 1D Perlin noise
+        return (Math.sin(t * 1.0 + phases[0]) + 
+                0.5 * Math.sin(t * 2.3 + phases[1]) + 
+                0.25 * Math.sin(t * 4.7 + phases[2])) / 1.75; 
+      };
+      
+      // Output of noise is roughly -1 to 1. Map to 0-100%
+      let newX = (noise(step, phaseX) + 1) * 50;
+      let newY = (noise(step * 0.8, phaseY) + 1) * 50; // Depth evolves slightly slower
+      
+      newX = Math.max(0, Math.min(100, newX));
+      newY = Math.max(0, Math.min(100, newY));
+      
+      sendToDeviceRef.current(newX, newY);
+    }, 250);
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors text-gray-900 dark:text-white select-none">
       {/* Header */}
@@ -254,6 +362,21 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
         </div>
         
         <div className="flex items-center gap-4">
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={() => setIsVoiceActive(!isVoiceActive)} 
+              className={`p-2 rounded-full transition-colors border shadow-sm ${isVoiceActive ? 'bg-pink-100 dark:bg-pink-900 border-pink-500 text-pink-600' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 border-transparent'}`}
+              title="Toggle Voice Control"
+            >
+              {isVoiceActive ? <Mic size={20} className="animate-pulse" /> : <MicOff size={20} />}
+            </button>
+            <button 
+              onClick={togglePower} 
+              className={`p-2 rounded-full transition-colors border shadow-sm ${handyState.power ? 'bg-pink-100 dark:bg-pink-900 border-pink-500 text-pink-600' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 border-transparent'}`}
+            >
+              <Power size={20} />
+            </button>
+          </div>
           <div className="flex items-center space-x-2">
             <Activity size={20} className={deviceStatus === 'Connected' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'} />
             <span className="text-sm font-medium text-gray-600 dark:text-gray-300 hidden sm:inline">{deviceStatus}</span>
@@ -313,7 +436,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
         </div>
 
         {/* Presets Grid */}
-        <div className="grid grid-cols-4 gap-2 mb-4">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-4">
           <button onClick={presetTease} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'tease' ? 'bg-blue-100 dark:bg-blue-900 border-blue-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
             <Feather size={20} className="text-blue-500" />
             <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Tease</span>
@@ -345,6 +468,10 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
           <button onClick={presetRandom} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'random' ? 'bg-amber-100 dark:bg-amber-900 border-amber-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
             <Shuffle size={20} className="text-amber-500" />
             <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Random</span>
+          </button>
+          <button onClick={presetOrganic} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'organic' ? 'bg-indigo-100 dark:bg-indigo-900 border-indigo-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
+            <Sparkles size={20} className="text-indigo-500" />
+            <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Organic</span>
           </button>
         </div>
 
