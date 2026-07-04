@@ -52,11 +52,11 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   }, []);
 
   const sendToDevice = async (newSpeed, newStroke) => {
-    if (!settings.handyKey) return;
-    
     // Always update visual state immediately
     setSpeed(newSpeed);
     setStroke(newStroke);
+    
+    if (!settings.handyKey) return;
     
     const now = Date.now();
     if (now - lastApiCall.current > 250) {
