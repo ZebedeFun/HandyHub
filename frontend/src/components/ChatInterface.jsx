@@ -284,9 +284,14 @@ export default function ChatInterface({ settings }) {
     if (!isAutoContinue) {
         setInput('');
         newMessages = [...messagesRef.current, { role: 'user', text: userText }];
-        apiMessages = newMessages.map(m => ({ role: m.role, content: m.text }));
+        apiMessages = newMessages.map((m, i) => {
+            if (i === newMessages.length - 1 && m.role === 'user') {
+                 return { role: m.role, content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n${m.text}` };
+            }
+            return { role: m.role, content: m.text };
+        });
     } else {
-        apiMessages = [...newMessages.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: '(Please continue the scene, moving the situation slowly forward)' }];
+        apiMessages = [...newMessages.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n(Please continue the scene, moving the situation slowly forward)` }];
     }
 
     setMessages([...newMessages, { role: 'assistant', text: '' }]);
@@ -294,7 +299,7 @@ export default function ChatInterface({ settings }) {
     try {
         const basePrompt = settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha');
         const placementInstruction = "CRITICAL: You must place any [HANDY_...] tags AT THE VERY START of the sentence they apply to, or inline just before the action word. NEVER put tags at the end of a sentence.\nExample: '[HANDY_SPEED:80] Let's go much faster.'";
-        const finalSystemPrompt = `${basePrompt}\n\nPersona Instructions: ${selectedPersona.prompt}\n\n${placementInstruction}`;
+        const finalSystemPrompt = `IMPORTANT CURRENT MOOD / ROLE: ${selectedPersona.prompt}\n\n${basePrompt}\n\n${placementInstruction}`;
 
         const response = await fetch('/api/chat', {
             method: 'POST',
