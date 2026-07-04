@@ -1,6 +1,6 @@
 // Chat UI Component
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Bot, User, Sliders, Zap, Volume2, VolumeX } from 'lucide-react';
+import { Send, Mic, Bot, User, Sliders, Zap, Volume2, VolumeX, AlertOctagon } from 'lucide-react';
 import { setSpeed, setStrokeZone } from '../services/handyService';
 
 const PERSONAS = [
@@ -177,8 +177,31 @@ export default function ChatInterface({ settings }) {
     }
   };
 
+  const emergencyStop = () => {
+    // 1. Clear queue
+    audioQueueRef.current = [];
+    
+    // 2. Stop processing flags
+    isProcessingQueueRef.current = false;
+    setIsPlayingQueue(false);
+    
+    // 3. Stop current audio if playing
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+    }
+    
+    // 4. Send stop command to device
+    const s = settingsRef.current;
+    if (s && s.handyKey) {
+      setSpeed(s.handyKey, 0);
+      setHandyState(prev => ({ ...prev, speed: 0 }));
+    }
+  };
+
   const pushToAudioQueue = (item) => {
-    audioQueueRef.current.push(item);
+    // Start fetching TTS immediately in the background and store the promise
+    const audioUrlPromise = fetchTTSAudio(item.text);
+    audioQueueRef.current.push({ ...item, audioUrlPromise });
     processAudioQueue();
   };
 
@@ -203,7 +226,8 @@ export default function ChatInterface({ settings }) {
         }
       };
 
-      const audioUrl = await fetchTTSAudio(item.text);
+      // Await the pre-fetched background promise
+      const audioUrl = await item.audioUrlPromise;
 
       if (!audioUrl) {
         executeActions();
@@ -221,13 +245,14 @@ export default function ChatInterface({ settings }) {
         audio.onplay = () => {
           executeActions();
         };
-        audio.onended = () => resolve();
-        audio.onerror = () => resolve();
+        audio.onended = resolve;
+        audio.onerror = resolve;
+        audio.onpause = resolve; // If emergency stop pauses the audio, resolve to exit loop
         
         audio.play().catch((err) => {
-          console.error("Audio playback prevented:", err);
+          console.error("Audio playback error:", err);
           executeActions();
-          resolve();
+          setTimeout(resolve, 1000);
         });
       });
       
@@ -266,7 +291,9 @@ export default function ChatInterface({ settings }) {
     setMessages([...newMessages, { role: 'assistant', text: '' }]);
     
     try {
-        const finalSystemPrompt = `${settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha')}\n\nPersona Instructions: ${selectedPersona.prompt}`;
+        const basePrompt = settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha');
+        const placementInstruction = "CRITICAL: You must place any [HANDY_...] tags AT THE VERY START of the sentence they apply to, or inline just before the action word. NEVER put tags at the end of a sentence.\nExample: '[HANDY_SPEED:80] Let's go much faster.'";
+        const finalSystemPrompt = `${basePrompt}\n\nPersona Instructions: ${selectedPersona.prompt}\n\n${placementInstruction}`;
 
         const response = await fetch('/api/chat', {
             method: 'POST',
@@ -444,6 +471,13 @@ export default function ChatInterface({ settings }) {
             <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} className="rounded text-pink-500 focus:ring-pink-500" />
             <span className="text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">Auto Mode</span>
           </label>
+          <button 
+            onClick={emergencyStop}
+            title="Emergency Stop"
+            className="flex items-center justify-center p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-500 dark:hover:bg-red-900/50 transition-colors ml-2"
+          >
+            <AlertOctagon size={18} />
+          </button>
         </div>
       </div>
 
