@@ -594,7 +594,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
         </div>
 
         {/* Presets Grid */}
-        <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 mb-4">
+        <div className="grid grid-cols-3 gap-3 sm:gap-4 mb-6">
           <button onClick={presetTease} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'tease' ? 'bg-blue-100 dark:bg-blue-900 border-blue-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
             <Feather size={20} className="text-blue-500" />
             <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Tease</span>
