@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves } from 'lucide-react';
+import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone } from '../../services/handyService';
 import XYPad from './XYPad';
@@ -27,8 +27,15 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   const [limitMaxDepth, setLimitMaxDepth] = useState(100);
   const [anchor, setAnchor] = useState('top');
   
+  // Random Mode
+  const [randomDuration, setRandomDuration] = useState(10);
+  const randomDurationRef = useRef(10);
+  
+  const padPosRef = useRef({ speed: 0, stroke: 0 });
   const lastApiCall = useRef(0);
   const rhythmInterval = useRef(null);
+  const randomState = useRef({ targetX: 50, targetY: 50, startX: 0, startY: 0, startTime: 0 });
+  
   const [activePreset, setActivePreset] = useState(null);
   const [testMode, setTestMode] = useState(false);
 
@@ -64,13 +71,20 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     return () => stopRhythm();
   }, []);
 
+  // Sync randomDuration to ref
+  useEffect(() => {
+    randomDurationRef.current = randomDuration;
+  }, [randomDuration]);
+
   // Re-calculate and send if limits change while running
   useEffect(() => {
-    sendToDevice(padSpeed, padStroke);
+    sendToDevice(padPosRef.current.speed, padPosRef.current.stroke);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limitMinSpeed, limitMaxSpeed, limitMinDepth, limitMaxDepth, anchor]);
 
   const sendToDevice = async (xOut, yOut) => {
+    padPosRef.current = { speed: xOut, stroke: yOut };
+    
     // 1. Math logic for limits
     const safeMinSpeed = Math.min(limitMinSpeed, limitMaxSpeed);
     const safeMaxSpeed = Math.max(limitMinSpeed, limitMaxSpeed);
@@ -105,7 +119,6 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     const now = Date.now();
     if (now - lastApiCall.current > 250) {
       lastApiCall.current = now;
-      // Note: HAMP requires Stroke before Speed ideally, but we can fire them together
       await apiSetStrokeZone(settings.handyKey, targetMin, targetMax);
       await apiSetSpeed(settings.handyKey, targetSpeed);
     }
@@ -130,31 +143,10 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   };
 
   // --- Presets ---
-  // Presets now output 0-100 Pad coordinates, which map to the Limits securely!
-  
-  const presetTease = () => {
-    stopRhythm();
-    setActivePreset('tease');
-    sendToDevice(30, 20); // 30% of allowed speed, 20% of allowed stroke
-  };
-
-  const presetSlowDeep = () => {
-    stopRhythm();
-    setActivePreset('slowdeep');
-    sendToDevice(15, 100); 
-  };
-
-  const presetPounding = () => {
-    stopRhythm();
-    setActivePreset('pounding');
-    sendToDevice(80, 100); 
-  };
-
-  const presetVibrate = () => {
-    stopRhythm();
-    setActivePreset('vibrate');
-    sendToDevice(100, 5); 
-  };
+  const presetTease = () => { stopRhythm(); setActivePreset('tease'); sendToDevice(30, 20); };
+  const presetSlowDeep = () => { stopRhythm(); setActivePreset('slowdeep'); sendToDevice(15, 100); };
+  const presetPounding = () => { stopRhythm(); setActivePreset('pounding'); sendToDevice(80, 100); };
+  const presetVibrate = () => { stopRhythm(); setActivePreset('vibrate'); sendToDevice(100, 5); };
 
   // --- Rhythmic Pattern (Edging Loop) ---
   const presetEdging = () => {
@@ -173,6 +165,49 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
       
       sendToDevice(padSpeedOut, currentPadStroke);
     }, 500);
+  };
+
+  // --- Random Pattern ---
+  const triggerNextRandom = () => {
+    randomState.current = {
+      targetX: Math.random() * 100,
+      targetY: Math.random() * 100,
+      startX: padPosRef.current.speed,
+      startY: padPosRef.current.stroke,
+      startTime: Date.now()
+    };
+  };
+
+  const presetRandom = () => {
+    if (activePreset === 'random') {
+      triggerNextRandom();
+      return;
+    }
+    
+    stopRhythm();
+    setActivePreset('random');
+    triggerNextRandom();
+    
+    rhythmInterval.current = setInterval(() => {
+      const { startX, startY, targetX, targetY, startTime } = randomState.current;
+      const durationMs = randomDurationRef.current * 1000;
+      
+      const now = Date.now();
+      let progress = (now - startTime) / durationMs;
+      
+      if (progress >= 1) {
+        progress = 1;
+        triggerNextRandom();
+      }
+      
+      // Easing function (easeInOutQuad) for smooth blending
+      const ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+      
+      const newX = startX + (targetX - startX) * ease;
+      const newY = startY + (targetY - startY) * ease;
+      
+      sendToDevice(newX, newY);
+    }, 250);
   };
 
   return (
@@ -212,10 +247,10 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
       </header>
 
       {/* Main Remote Area */}
-      <main className="flex-1 flex flex-col p-4 md:p-8 max-w-2xl mx-auto w-full">
+      <main className="flex-1 flex flex-col p-4 md:p-8 max-w-3xl mx-auto w-full">
         
         {/* XY Pad */}
-        <div className="flex-1 flex items-center justify-center my-4">
+        <div className="flex-1 flex items-center justify-center my-4 min-h-[250px]">
           <XYPad 
             currentSpeed={padSpeed} 
             currentStroke={padStroke} 
@@ -245,14 +280,60 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
           </div>
         </div>
 
+        {/* Presets Grid */}
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-4">
+          <button onClick={presetTease} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'tease' ? 'bg-blue-100 dark:bg-blue-900 border-blue-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
+            <Wind size={20} className="text-blue-500" />
+            <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Tease</span>
+          </button>
+          <button onClick={presetSlowDeep} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'slowdeep' ? 'bg-indigo-100 dark:bg-indigo-900 border-indigo-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
+            <Waves size={20} className="text-indigo-500" />
+            <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Slow Deep</span>
+          </button>
+          <button onClick={presetPounding} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'pounding' ? 'bg-orange-100 dark:bg-orange-900 border-orange-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
+            <FastForward size={20} className="text-orange-500" />
+            <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Pounding</span>
+          </button>
+          <button onClick={presetVibrate} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'vibrate' ? 'bg-pink-100 dark:bg-pink-900 border-pink-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
+            <Zap size={20} className="text-pink-500" />
+            <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Flutter</span>
+          </button>
+          <button onClick={presetEdging} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'edging' ? 'bg-emerald-100 dark:bg-emerald-900 border-emerald-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
+            <Activity size={20} className="text-emerald-500" />
+            <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Edging</span>
+          </button>
+          <button onClick={presetRandom} className={`p-3 rounded-xl flex flex-col items-center justify-center gap-1 transition-colors border ${activePreset === 'random' ? 'bg-amber-100 dark:bg-amber-900 border-amber-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}>
+            <Shuffle size={20} className="text-amber-500" />
+            <span className="text-[10px] font-bold text-gray-700 dark:text-gray-300">Random</span>
+          </button>
+        </div>
+
+        {/* Random Settings (Visible only when Random is active) */}
+        {activePreset === 'random' && (
+          <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-200 dark:border-amber-800 mb-4 flex flex-col sm:flex-row items-center gap-4">
+            <span className="text-sm font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap">Blend Every:</span>
+            <input type="range" min="2" max="60" value={randomDuration} onChange={e => setRandomDuration(Number(e.target.value))} className="w-full accent-amber-500 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
+            <span className="text-sm font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap w-12 text-right">{randomDuration} sec</span>
+          </div>
+        )}
+
+        {/* STOP / PANIC Button */}
+        <button 
+          onClick={handleStop}
+          className="w-full py-6 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-2xl shadow-[0_10px_25px_rgba(220,38,38,0.5)] flex items-center justify-center gap-3 transition-transform active:scale-95 mb-10"
+        >
+          <Power size={32} />
+          <span className="text-2xl font-black tracking-widest uppercase">Stop</span>
+        </button>
+
         {/* Limits Configuration */}
-        <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6 opacity-80 hover:opacity-100 transition-opacity">
           <div className="flex justify-between items-center mb-6">
             <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Device Limits</h3>
             <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-900 p-1 rounded-lg">
-              <button onClick={() => setAnchor('top')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-shadow ${anchor === 'top' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Top-Down</button>
-              <button onClick={() => setAnchor('center')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-shadow ${anchor === 'center' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Center</button>
-              <button onClick={() => setAnchor('bottom')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-shadow ${anchor === 'bottom' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Bottom-Up</button>
+              <button onClick={() => setAnchor('top')} className={`px-3 py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-shadow ${anchor === 'top' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Top-Down</button>
+              <button onClick={() => setAnchor('center')} className={`px-3 py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-shadow ${anchor === 'center' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Center</button>
+              <button onClick={() => setAnchor('bottom')} className={`px-3 py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-shadow ${anchor === 'bottom' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Bottom-Up</button>
             </div>
           </div>
           
@@ -275,59 +356,6 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
             </div>
           </div>
         </div>
-
-        {/* Presets Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-          <button 
-            onClick={presetTease}
-            className={`p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-colors border ${activePreset === 'tease' ? 'bg-blue-100 dark:bg-blue-900 border-blue-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}
-          >
-            <Wind size={24} className="text-blue-500" />
-            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Tease</span>
-          </button>
-          
-          <button 
-            onClick={presetSlowDeep}
-            className={`p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-colors border ${activePreset === 'slowdeep' ? 'bg-indigo-100 dark:bg-indigo-900 border-indigo-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}
-          >
-            <Waves size={24} className="text-indigo-500" />
-            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Slow & Deep</span>
-          </button>
-
-          <button 
-            onClick={presetPounding}
-            className={`p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-colors border ${activePreset === 'pounding' ? 'bg-orange-100 dark:bg-orange-900 border-orange-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}
-          >
-            <FastForward size={24} className="text-orange-500" />
-            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Pounding</span>
-          </button>
-
-          <button 
-            onClick={presetVibrate}
-            className={`p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-colors border ${activePreset === 'vibrate' ? 'bg-pink-100 dark:bg-pink-900 border-pink-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}
-          >
-            <Zap size={24} className="text-pink-500" />
-            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Flutter</span>
-          </button>
-
-          {/* Rhythmic Preset */}
-          <button 
-            onClick={presetEdging}
-            className={`col-span-2 sm:col-span-1 p-4 rounded-xl flex flex-col items-center justify-center gap-2 transition-colors border ${activePreset === 'edging' ? 'bg-emerald-100 dark:bg-emerald-900 border-emerald-500' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-750'}`}
-          >
-            <Activity size={24} className="text-emerald-500" />
-            <span className="text-xs font-bold text-gray-700 dark:text-gray-300">Edging</span>
-          </button>
-        </div>
-
-        {/* STOP / PANIC Button */}
-        <button 
-          onClick={handleStop}
-          className="w-full py-6 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-2xl shadow-[0_10px_25px_rgba(220,38,38,0.5)] flex items-center justify-center gap-3 transition-transform active:scale-95"
-        >
-          <Power size={32} />
-          <span className="text-2xl font-black tracking-widest uppercase">Stop</span>
-        </button>
 
       </main>
     </div>
