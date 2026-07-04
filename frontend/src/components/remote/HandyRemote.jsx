@@ -3,6 +3,7 @@ import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves } from 'lucid
 import { useNavigate } from 'react-router-dom';
 import { checkStatus, setSpeed as apiSetSpeed, setStrokeLength as apiSetStrokeLength } from '../../services/handyService';
 import XYPad from './XYPad';
+import RemoteSimulator from './RemoteSimulator';
 
 export default function HandyRemote({ isDarkMode, toggleTheme }) {
   const navigate = useNavigate();
@@ -16,6 +17,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   const lastApiCall = useRef(0);
   const rhythmInterval = useRef(null);
   const [activePreset, setActivePreset] = useState(null);
+  const [testMode, setTestMode] = useState(false);
 
   // Load Settings
   useEffect(() => {
@@ -136,7 +138,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   };
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 dark:bg-gray-900 transition-colors text-gray-900 dark:text-white overflow-hidden select-none">
+    <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors text-gray-900 dark:text-white select-none">
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center z-10 shrink-0">
         <div className="flex items-center gap-4">
@@ -151,6 +153,20 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
             <Activity size={20} className={deviceStatus === 'Connected' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'} />
             <span className="text-sm font-medium text-gray-600 dark:text-gray-300 hidden sm:inline">{deviceStatus}</span>
           </div>
+          <button 
+            onClick={() => setTestMode(!testMode)} 
+            className={`px-3 py-1 text-sm font-bold rounded-full border transition-colors hidden sm:block ${testMode ? 'bg-emerald-100 border-emerald-500 text-emerald-600 dark:bg-emerald-900/30 dark:border-emerald-400 dark:text-emerald-400' : 'bg-white border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400'}`}
+          >
+            {testMode ? 'Test Mode: ON' : 'Test Mode: OFF'}
+          </button>
+          {/* Mobile Test Mode Toggle */}
+          <button 
+            onClick={() => setTestMode(!testMode)} 
+            className={`p-2 rounded-full border transition-colors sm:hidden ${testMode ? 'bg-emerald-100 border-emerald-500 text-emerald-600 dark:bg-emerald-900/30 dark:border-emerald-400 dark:text-emerald-400' : 'bg-white border-gray-200 text-gray-500 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-400'}`}
+            title="Test Mode"
+          >
+            <Wind size={20} />
+          </button>
           <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors border-l pl-4 border-gray-200 dark:border-gray-700">
             {isDarkMode ? '☀️' : '🌙'}
           </button>
@@ -158,7 +174,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
       </header>
 
       {/* Main Remote Area */}
-      <main className="flex-1 flex flex-col justify-between p-4 md:p-8 max-w-2xl mx-auto w-full">
+      <main className="flex-1 flex flex-col p-4 md:p-8 max-w-2xl mx-auto w-full">
         
         {/* XY Pad */}
         <div className="flex-1 flex items-center justify-center my-4">
@@ -170,7 +186,11 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
         </div>
 
         {/* Current Status Readout */}
-        <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+        {testMode && (
+          <RemoteSimulator speed={speed} stroke={stroke} />
+        )}
+
+        <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 my-6">
           <div className="text-center flex-1">
             <div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Speed</div>
             <div className="text-3xl font-black text-blue-500">{speed}%</div>
