@@ -174,13 +174,14 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
       targetY: Math.random() * 100,
       startX: padPosRef.current.speed,
       startY: padPosRef.current.stroke,
-      startTime: Date.now()
+      state: 'BLENDING',
+      stateStartTime: Date.now()
     };
   };
 
   const presetRandom = () => {
     if (activePreset === 'random') {
-      triggerNextRandom();
+      triggerNextRandom(); // Force skip to next random target immediately
       return;
     }
     
@@ -188,25 +189,35 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     setActivePreset('random');
     triggerNextRandom();
     
+    const BLEND_DURATION_MS = 3000; // Fixed 3 second transition
+    
     rhythmInterval.current = setInterval(() => {
-      const { startX, startY, targetX, targetY, startTime } = randomState.current;
-      const durationMs = randomDurationRef.current * 1000;
+      const { startX, startY, targetX, targetY, state, stateStartTime } = randomState.current;
+      const holdDurationMs = randomDurationRef.current * 1000;
       
       const now = Date.now();
-      let progress = (now - startTime) / durationMs;
       
-      if (progress >= 1) {
-        progress = 1;
-        triggerNextRandom();
+      if (state === 'BLENDING') {
+        let progress = (now - stateStartTime) / BLEND_DURATION_MS;
+        
+        if (progress >= 1) {
+          progress = 1;
+          randomState.current.state = 'HOLDING';
+          randomState.current.stateStartTime = now;
+        }
+        
+        // Easing function (easeInOutQuad) for smooth blending
+        const ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+        
+        const newX = startX + (targetX - startX) * ease;
+        const newY = startY + (targetY - startY) * ease;
+        sendToDevice(newX, newY);
+      } else if (state === 'HOLDING') {
+        // Just wait until the hold duration expires, then pick a new target
+        if (now - stateStartTime >= holdDurationMs) {
+          triggerNextRandom();
+        }
       }
-      
-      // Easing function (easeInOutQuad) for smooth blending
-      const ease = progress < 0.5 ? 2 * progress * progress : 1 - Math.pow(-2 * progress + 2, 2) / 2;
-      
-      const newX = startX + (targetX - startX) * ease;
-      const newY = startY + (targetY - startY) * ease;
-      
-      sendToDevice(newX, newY);
     }, 250);
   };
 
