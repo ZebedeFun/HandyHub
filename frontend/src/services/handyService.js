@@ -71,21 +71,22 @@ export const setSpeed = async (connectionKey, speedPercentage) => {
 /**
  * Sets the stroke length by adjusting the bottom and top boundaries of the slider zone.
  * @param {string} connectionKey - The device connection key.
- * @param {number|string} strokePercentage - 0 to 100
+ * @param {number|string} min - 0 to 100
+ * @param {number|string} max - 0 to 100
  */
-export const setStrokeLength = async (connectionKey, strokePercentage) => {
+export const setStrokeZone = async (connectionKey, min, max) => {
   if (!connectionKey) return;
-  const max = Math.min(100, Math.max(0, parseInt(strokePercentage, 10)));
+  const safeMin = Math.min(100, Math.max(0, parseInt(min, 10)));
+  const safeMax = Math.min(100, Math.max(0, parseInt(max, 10)));
   
   try {
-    // Adjusts the stroke zone (min 0%, max variable%)
     await fetch(`${API_BASE}/slider`, {
       method: 'PUT',
       headers: getHeaders(connectionKey),
-      body: JSON.stringify({ min: 0, max }),
+      body: JSON.stringify({ min: safeMin, max: safeMax }),
     });
   } catch (error) {
-    console.error('Handy setStrokeLength error:', error);
+    console.error('Handy setStrokeZone error:', error);
   }
 };
 

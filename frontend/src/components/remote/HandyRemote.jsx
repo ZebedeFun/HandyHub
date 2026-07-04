@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { checkStatus, setSpeed as apiSetSpeed, setStrokeLength as apiSetStrokeLength } from '../../services/handyService';
+import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone } from '../../services/handyService';
 import XYPad from './XYPad';
 import RemoteSimulator from './RemoteSimulator';
 
@@ -11,8 +11,21 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   const [settings, setSettings] = useState({});
   const [deviceStatus, setDeviceStatus] = useState('Disconnected');
   
-  const [speed, setSpeed] = useState(0);
-  const [stroke, setStroke] = useState(0);
+  // Pad outputs (0-100)
+  const [padSpeed, setPadSpeed] = useState(0);
+  const [padStroke, setPadStroke] = useState(0);
+  
+  // Visual readout states
+  const [actualSpeed, setActualSpeed] = useState(0);
+  const [deviceMin, setDeviceMin] = useState(0);
+  const [deviceMax, setDeviceMax] = useState(0);
+  
+  // Limits & Anchors
+  const [limitMinSpeed, setLimitMinSpeed] = useState(0);
+  const [limitMaxSpeed, setLimitMaxSpeed] = useState(100);
+  const [limitMinDepth, setLimitMinDepth] = useState(0);
+  const [limitMaxDepth, setLimitMaxDepth] = useState(100);
+  const [anchor, setAnchor] = useState('top');
   
   const lastApiCall = useRef(0);
   const rhythmInterval = useRef(null);
@@ -51,10 +64,41 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     return () => stopRhythm();
   }, []);
 
-  const sendToDevice = async (newSpeed, newStroke) => {
+  // Re-calculate and send if limits change while running
+  useEffect(() => {
+    sendToDevice(padSpeed, padStroke);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limitMinSpeed, limitMaxSpeed, limitMinDepth, limitMaxDepth, anchor]);
+
+  const sendToDevice = async (xOut, yOut) => {
+    // 1. Math logic for limits
+    const safeMinSpeed = Math.min(limitMinSpeed, limitMaxSpeed);
+    const safeMaxSpeed = Math.max(limitMinSpeed, limitMaxSpeed);
+    const safeMinDepth = Math.min(limitMinDepth, limitMaxDepth);
+    const safeMaxDepth = Math.max(limitMinDepth, limitMaxDepth);
+
+    const targetSpeed = Math.round(safeMinSpeed + (xOut / 100) * (safeMaxSpeed - safeMinSpeed));
+    
+    let targetMin, targetMax;
+    if (anchor === 'top') {
+      targetMax = safeMaxDepth;
+      targetMin = Math.round(safeMaxDepth - (yOut / 100) * (safeMaxDepth - safeMinDepth));
+    } else if (anchor === 'bottom') {
+      targetMin = safeMinDepth;
+      targetMax = Math.round(safeMinDepth + (yOut / 100) * (safeMaxDepth - safeMinDepth));
+    } else { // center
+      const center = safeMinDepth + (safeMaxDepth - safeMinDepth) / 2;
+      const strokeAmount = (yOut / 100) * (safeMaxDepth - safeMinDepth);
+      targetMin = Math.round(center - strokeAmount / 2);
+      targetMax = Math.round(center + strokeAmount / 2);
+    }
+
     // Always update visual state immediately
-    setSpeed(newSpeed);
-    setStroke(newStroke);
+    setPadSpeed(xOut);
+    setPadStroke(yOut);
+    setActualSpeed(targetSpeed);
+    setDeviceMin(targetMin);
+    setDeviceMax(targetMax);
     
     if (!settings.handyKey) return;
     
@@ -62,8 +106,8 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     if (now - lastApiCall.current > 250) {
       lastApiCall.current = now;
       // Note: HAMP requires Stroke before Speed ideally, but we can fire them together
-      await apiSetStrokeLength(settings.handyKey, newStroke);
-      await apiSetSpeed(settings.handyKey, newSpeed);
+      await apiSetStrokeZone(settings.handyKey, targetMin, targetMax);
+      await apiSetSpeed(settings.handyKey, targetSpeed);
     }
   };
 
@@ -86,29 +130,30 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   };
 
   // --- Presets ---
-
+  // Presets now output 0-100 Pad coordinates, which map to the Limits securely!
+  
   const presetTease = () => {
     stopRhythm();
     setActivePreset('tease');
-    sendToDevice(30, 20); // Low speed, short stroke
+    sendToDevice(30, 20); // 30% of allowed speed, 20% of allowed stroke
   };
 
   const presetSlowDeep = () => {
     stopRhythm();
     setActivePreset('slowdeep');
-    sendToDevice(15, 100); // Slow speed, full stroke
+    sendToDevice(15, 100); 
   };
 
   const presetPounding = () => {
     stopRhythm();
     setActivePreset('pounding');
-    sendToDevice(80, 100); // High speed, full stroke
+    sendToDevice(80, 100); 
   };
 
   const presetVibrate = () => {
     stopRhythm();
     setActivePreset('vibrate');
-    sendToDevice(100, 5); // Max speed, tiny stroke
+    sendToDevice(100, 5); 
   };
 
   // --- Rhythmic Pattern (Edging Loop) ---
@@ -116,24 +161,17 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     stopRhythm();
     setActivePreset('edging');
     
-    // Edging loop: Ramp up speed slowly for 15s, hold for 2s, stop for 3s
     let ms = 0;
+    const cycleDuration = 20000; // 20 seconds per full cycle
+    
     rhythmInterval.current = setInterval(() => {
       ms += 500;
-      if (ms <= 15000) {
-        // Ramp up
-        const s = Math.round(10 + (ms / 15000) * 80);
-        sendToDevice(s, 90);
-      } else if (ms <= 17000) {
-        // Hold max
-        sendToDevice(90, 90);
-      } else if (ms <= 20000) {
-        // Drop to 0
-        sendToDevice(0, 0);
-      } else {
-        // Loop
-        ms = 0;
-      }
+      const progress = (ms % cycleDuration) / cycleDuration;
+      const strokeMultiplier = (1 - Math.cos(progress * Math.PI * 2)) / 2;
+      const currentPadStroke = Math.round(20 + strokeMultiplier * 80);
+      const padSpeedOut = 30;
+      
+      sendToDevice(padSpeedOut, currentPadStroke);
     }, 500);
   };
 
@@ -179,26 +217,62 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
         {/* XY Pad */}
         <div className="flex-1 flex items-center justify-center my-4">
           <XYPad 
-            currentSpeed={speed} 
-            currentStroke={stroke} 
+            currentSpeed={padSpeed} 
+            currentStroke={padStroke} 
             onChange={handleXYChange} 
           />
         </div>
 
         {/* Current Status Readout */}
         {testMode && (
-          <RemoteSimulator speed={speed} stroke={stroke} />
+          <RemoteSimulator speed={actualSpeed} deviceMin={deviceMin} deviceMax={deviceMax} />
         )}
 
-        <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 my-6">
+        <div className="flex justify-between items-center bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mt-2 mb-6">
           <div className="text-center flex-1">
-            <div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Speed</div>
-            <div className="text-3xl font-black text-blue-500">{speed}%</div>
+            <div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Out Speed</div>
+            <div className="text-2xl font-black text-blue-500">{actualSpeed}%</div>
           </div>
-          <div className="w-px h-12 bg-gray-200 dark:bg-gray-700"></div>
+          <div className="w-px h-10 bg-gray-200 dark:bg-gray-700"></div>
           <div className="text-center flex-1">
-            <div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Stroke</div>
-            <div className="text-3xl font-black text-purple-500">{stroke}%</div>
+            <div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Out Min</div>
+            <div className="text-2xl font-black text-purple-500">{deviceMin}%</div>
+          </div>
+          <div className="w-px h-10 bg-gray-200 dark:bg-gray-700"></div>
+          <div className="text-center flex-1">
+            <div className="text-xs text-gray-500 uppercase font-bold tracking-wider mb-1">Out Max</div>
+            <div className="text-2xl font-black text-purple-500">{deviceMax}%</div>
+          </div>
+        </div>
+
+        {/* Limits Configuration */}
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Device Limits</h3>
+            <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-900 p-1 rounded-lg">
+              <button onClick={() => setAnchor('top')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-shadow ${anchor === 'top' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Top-Down</button>
+              <button onClick={() => setAnchor('center')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-shadow ${anchor === 'center' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Center</button>
+              <button onClick={() => setAnchor('bottom')} className={`px-4 py-1.5 text-xs font-bold rounded-md transition-shadow ${anchor === 'bottom' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Bottom-Up</button>
+            </div>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+            <div>
+              <label className="flex justify-between text-xs font-bold text-gray-500 mb-2"><span>Min Depth</span><span>{limitMinDepth}%</span></label>
+              <input type="range" min="0" max="100" value={limitMinDepth} onChange={e => setLimitMinDepth(Number(e.target.value))} className="w-full accent-purple-500 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
+            </div>
+            <div>
+              <label className="flex justify-between text-xs font-bold text-gray-500 mb-2"><span>Max Depth</span><span>{limitMaxDepth}%</span></label>
+              <input type="range" min="0" max="100" value={limitMaxDepth} onChange={e => setLimitMaxDepth(Number(e.target.value))} className="w-full accent-purple-500 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
+            </div>
+            <div>
+              <label className="flex justify-between text-xs font-bold text-gray-500 mb-2"><span>Min Speed</span><span>{limitMinSpeed}%</span></label>
+              <input type="range" min="0" max="100" value={limitMinSpeed} onChange={e => setLimitMinSpeed(Number(e.target.value))} className="w-full accent-blue-500 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
+            </div>
+            <div>
+              <label className="flex justify-between text-xs font-bold text-gray-500 mb-2"><span>Max Speed</span><span>{limitMaxSpeed}%</span></label>
+              <input type="range" min="0" max="100" value={limitMaxSpeed} onChange={e => setLimitMaxSpeed(Number(e.target.value))} className="w-full accent-blue-500 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer" />
+            </div>
           </div>
         </div>
 
