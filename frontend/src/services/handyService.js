@@ -88,3 +88,75 @@ export const setStrokeLength = async (connectionKey, strokePercentage) => {
     console.error('Handy setStrokeLength error:', error);
   }
 };
+
+/**
+ * Calculates the server time offset to sync playback.
+ */
+export const getServerTimeOffset = async (connectionKey) => {
+  if (!connectionKey) return 0;
+  try {
+    const start = Date.now();
+    const response = await fetch(`${API_BASE}/servertime`, {
+      method: 'GET',
+      headers: getHeaders(connectionKey),
+    });
+    const end = Date.now();
+    const data = await response.json();
+    const rtt = end - start;
+    const estimatedServerTime = data.serverTime + rtt / 2;
+    return estimatedServerTime - end;
+  } catch (error) {
+    console.error('Handy getServerTimeOffset error:', error);
+    return 0;
+  }
+};
+
+/**
+ * Prepares the Handy with a script URL.
+ */
+export const hsspSetup = async (connectionKey, url) => {
+  if (!connectionKey || !url) return;
+  try {
+    const response = await fetch(`${API_BASE}/hssp/setup`, {
+      method: 'PUT',
+      headers: getHeaders(connectionKey),
+      body: JSON.stringify({ url }),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Handy hsspSetup error:', error);
+  }
+};
+
+/**
+ * Starts playing the prepared script.
+ */
+export const hsspPlay = async (connectionKey, estimatedServerTime, startTime) => {
+  if (!connectionKey) return;
+  try {
+    const response = await fetch(`${API_BASE}/hssp/play`, {
+      method: 'PUT',
+      headers: getHeaders(connectionKey),
+      body: JSON.stringify({ estimatedServerTime, startTime }),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Handy hsspPlay error:', error);
+  }
+};
+
+/**
+ * Stops playing the script.
+ */
+export const hsspStop = async (connectionKey) => {
+  if (!connectionKey) return;
+  try {
+    const response = await fetch(`${API_BASE}/hssp/stop`, {
+      method: 'PUT',
+      headers: getHeaders(connectionKey),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Handy hsspStop error:', error);
+  }
+};

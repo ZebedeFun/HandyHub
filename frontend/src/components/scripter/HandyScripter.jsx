@@ -5,6 +5,7 @@ import GenerationControls from './GenerationControls';
 import Heatmap from './Heatmap';
 import DeviceSimulator from './DeviceSimulator';
 import { generateProceduralScript, generatePartialScript, modifyPartialScript } from '../../services/scriptGenerator';
+import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
 
 export default function HandyScripter({ isDarkMode, toggleTheme }) {
   const navigate = useNavigate();
@@ -18,6 +19,36 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
   const [isPlaying, setIsPlaying] = useState(false);
   
   const [funscript, setFunscript] = useState(null);
+  const [settings, setSettings] = useState({});
+  const [syncToHandy, setSyncToHandy] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/settings').then(r => r.json()).then(data => setSettings(data)).catch(console.error);
+  }, []);
+
+  const syncScriptToHandy = async (scriptJson) => {
+    if (!settings.handyKey || !scriptJson) return;
+    try {
+      const res = await fetch('/api/host-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(scriptJson)
+      });
+      const data = await res.json();
+      if (data.success) {
+        const fullUrl = `${window.location.protocol}//${window.location.host}${data.url}`;
+        await hsspSetup(settings.handyKey, fullUrl);
+      }
+    } catch (err) {
+      console.error('Handy Sync error:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (syncToHandy && funscript) {
+      syncScriptToHandy(funscript);
+    }
+  }, [funscript, syncToHandy]);
   
   const [params, setParams] = useState({
     baseSpeed: 5,
@@ -96,6 +127,32 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
     }
   };
 
+  const handlePlay = async () => {
+    setIsPlaying(true);
+    if (syncToHandy && settings.handyKey && videoRef.current) {
+      const offset = await getServerTimeOffset(settings.handyKey);
+      const serverTime = Math.round(Date.now() + offset);
+      const startTime = Math.round(videoRef.current.currentTime * 1000);
+      await hsspPlay(settings.handyKey, serverTime, startTime);
+    }
+  };
+
+  const handlePause = async () => {
+    setIsPlaying(false);
+    if (syncToHandy && settings.handyKey) {
+      await hsspStop(settings.handyKey);
+    }
+  };
+
+  const handleSeeked = async () => {
+    if (isPlaying && syncToHandy && settings.handyKey && videoRef.current) {
+      const offset = await getServerTimeOffset(settings.handyKey);
+      const serverTime = Math.round(Date.now() + offset);
+      const startTime = Math.round(videoRef.current.currentTime * 1000);
+      await hsspPlay(settings.handyKey, serverTime, startTime);
+    }
+  };
+
   // Script Generation
   const handleGenerate = () => {
     if (!durationMs || durationMs === 0) {
@@ -168,9 +225,26 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
           </button>
           <h1 className="text-xl font-bold tracking-tight">Handy Scripter</h1>
         </div>
-        <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
-          {isDarkMode ? '☀️' : '🌙'}
-        </button>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center space-x-2 text-sm cursor-pointer border-r pr-4 border-gray-200 dark:border-gray-700">
+            <input 
+              type="checkbox" 
+              checked={syncToHandy} 
+              onChange={(e) => {
+                if (e.target.checked && !settings.handyKey) {
+                  alert("Please set your Handy Connection Key in the Chat Settings first.");
+                  return;
+                }
+                setSyncToHandy(e.target.checked);
+              }} 
+              className="rounded text-blue-500 focus:ring-blue-500" 
+            />
+            <span className="text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">Sync to Handy</span>
+          </label>
+          <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+            {isDarkMode ? '☀️' : '🌙'}
+          </button>
+        </div>
       </header>
 
       {/* Main Content */}
@@ -214,8 +288,9 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
                   className="w-full h-full object-contain"
                   onLoadedMetadata={handleLoadedMetadata}
                   onTimeUpdate={handleTimeUpdate}
-                  onPlay={() => setIsPlaying(true)}
-                  onPause={() => setIsPlaying(false)}
+                  onPlay={handlePlay}
+                  onPause={handlePause}
+                  onSeeked={handleSeeked}
                 />
                 {funscript && (
                   <DeviceSimulator 

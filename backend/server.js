@@ -17,6 +17,33 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
 });
 
+// HSSP Script Hosting
+let hostedScriptCsv = '';
+
+app.post('/api/host-script', (req, res) => {
+    try {
+        const scriptJson = req.body;
+        if (!scriptJson || !scriptJson.actions) {
+            return res.status(400).json({ error: 'Invalid script format' });
+        }
+        
+        // Convert to CSV format (time in ms, position 0-100)
+        const lines = scriptJson.actions.map(action => `${action.at},${action.pos}`);
+        hostedScriptCsv = lines.join('\n');
+        
+        res.json({ success: true, url: `/api/hosted-script.csv` });
+    } catch (err) {
+        console.error('Error hosting script:', err);
+        res.status(500).json({ error: 'Failed to host script' });
+    }
+});
+
+app.get('/api/hosted-script.csv', (req, res) => {
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Access-Control-Allow-Origin', '*'); // Needed for TheHandy
+    res.send(hostedScriptCsv);
+});
+
 // Step 3: LLM Connect & Streams
 app.post('/api/chat', async (req, res) => {
     const { messages, apiKey, llmUrl, llmModel, llmTemperature, systemPrompt } = req.body;
