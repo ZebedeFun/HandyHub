@@ -1,7 +1,7 @@
 // Chat UI Component
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Mic, Bot, User, Sliders, Zap, Volume2, VolumeX } from 'lucide-react';
-import { setSpeed, setStrokeLength } from '../services/handyService';
+import { setSpeed, setStrokeZone } from '../services/handyService';
 
 export default function ChatInterface({ settings }) {
   const [messages, setMessages] = useState([
@@ -263,7 +263,7 @@ export default function ChatInterface({ settings }) {
                                         setHandyState(prev => ({ ...prev, speed: val }));
                                     }
                                     if (type === 'STROKE') {
-                                        setStrokeLength(settings.handyKey, val);
+                                        setStrokeZone(settings.handyKey, 0, val);
                                         setHandyState(prev => ({ ...prev, stroke: val }));
                                     }
                                     
