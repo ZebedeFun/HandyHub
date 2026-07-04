@@ -205,11 +205,15 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
       console.log(`[Voice Command] Matched "organic/magic". Triggering Organic preset.`);
       presetOrganic();
     } else if (transcript.includes('faster')) {
-      console.log(`[Voice Command] Matched "faster". Increasing max speed limit by 20.`);
-      setLimitMaxSpeed(prev => Math.min(100, prev + 20));
+      console.log(`[Voice Command] Matched "faster". Increasing current speed by 20%.`);
+      stopRhythm();
+      const newSpeed = Math.min(100, padPosRef.current.speed + 20);
+      sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
     } else if (transcript.includes('slower')) {
-      console.log(`[Voice Command] Matched "slower". Decreasing max speed limit by 20.`);
-      setLimitMaxSpeed(prev => Math.max(0, prev - 20));
+      console.log(`[Voice Command] Matched "slower". Decreasing current speed by 20%.`);
+      stopRhythm();
+      const newSpeed = Math.max(0, padPosRef.current.speed - 20);
+      sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
     }
   };
 
