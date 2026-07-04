@@ -14,6 +14,39 @@ export default function SettingsModal({ settings, onSave, onClose }) {
     onSave(localSettings);
   };
 
+  const fileInputRef = React.useRef(null);
+
+  const handleExport = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(localSettings, null, 2));
+    const downloadAnchorNode = document.createElement('a');
+    downloadAnchorNode.setAttribute("href", dataStr);
+    downloadAnchorNode.setAttribute("download", "handytime-config.json");
+    document.body.appendChild(downloadAnchorNode);
+    downloadAnchorNode.click();
+    downloadAnchorNode.remove();
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const imported = JSON.parse(event.target.result);
+        setLocalSettings(prev => ({ ...prev, ...imported }));
+        alert("Settings imported! Review them and click Save Settings to apply.");
+      } catch (err) {
+        alert("Failed to parse settings file.");
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = null;
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 dark:bg-black/80 flex items-center justify-center p-4 z-50 backdrop-blur-sm transition-colors">
       <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-transparent dark:border-gray-700 transition-colors">
@@ -133,9 +166,16 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               <textarea name="systemPrompt" value={localSettings.systemPrompt} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 h-40 font-mono text-sm bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" />
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Use <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">[CHARACTER]</code> and <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">[NAME]</code> to inject the description and name dynamically during chats.</p>
             </div>
-            <div className="pt-6 flex justify-end space-x-3 border-t dark:border-gray-700">
-              <button type="button" onClick={onClose} className="px-5 py-2.5 border dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 font-medium transition">Cancel</button>
-              <button type="submit" className="px-5 py-2.5 bg-pink-500 text-white rounded-lg hover:bg-pink-600 font-medium transition shadow-md shadow-pink-500/30">Save Settings</button>
+            <div className="pt-6 flex justify-between items-center border-t dark:border-gray-700">
+              <div className="flex space-x-3">
+                <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={handleImportFile} />
+                <button type="button" onClick={handleImportClick} className="px-4 py-2 border dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm font-medium transition">Import</button>
+                <button type="button" onClick={handleExport} className="px-4 py-2 border dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 text-sm font-medium transition">Export</button>
+              </div>
+              <div className="flex space-x-3">
+                <button type="button" onClick={onClose} className="px-5 py-2.5 border dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 font-medium transition">Cancel</button>
+                <button type="submit" className="px-5 py-2.5 bg-pink-500 text-white rounded-lg hover:bg-pink-600 font-medium transition shadow-md shadow-pink-500/30">Save Settings</button>
+              </div>
             </div>
           </form>
         </div></div></div>
