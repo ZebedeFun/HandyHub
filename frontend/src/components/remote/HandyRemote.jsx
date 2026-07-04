@@ -55,6 +55,9 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
 
       recognitionRef.current.onerror = (event) => {
         console.error("Speech recognition error", event.error);
+        if (event.error === 'network' && window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            alert("Microphone network error: Chrome requires HTTPS or 'localhost' to use voice commands. Using an IP address over HTTP will block speech recognition.");
+        }
         if (['not-allowed', 'network', 'service-not-allowed', 'audio-capture'].includes(event.error)) {
           setIsVoiceActive(false);
         }
