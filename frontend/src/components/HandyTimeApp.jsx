@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import ChatInterface from './ChatInterface';
 import SettingsModal from './SettingsModal';
-import { Settings, Activity, Sun, Moon } from 'lucide-react';
+import { Settings, Activity, Sun, Moon, ArrowLeft } from 'lucide-react';
 import { checkStatus } from '../services/handyService';
 
 export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
+  const navigate = useNavigate();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deviceStatus, setDeviceStatus] = useState('Disconnected'); // Disconnected, Connecting, Connected
   
@@ -86,7 +88,12 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900 transition-colors">
       <header className="bg-white dark:bg-gray-800 shadow-sm dark:shadow-none border-b border-transparent dark:border-gray-700 p-4 flex justify-between items-center z-10 transition-colors">
-        <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-tight">AI Partner</h1>
+        <div className="flex items-center">
+          <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors mr-2">
+            <ArrowLeft size={20} className="text-gray-600 dark:text-gray-300" />
+          </button>
+          <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-tight">AI Partner</h1>
+        </div>
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <Activity size={18} className={deviceStatus === 'Connected' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'} />

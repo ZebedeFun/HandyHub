@@ -371,8 +371,9 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
               {isVoiceActive ? <Mic size={20} className="animate-pulse" /> : <MicOff size={20} />}
             </button>
             <button 
-              onClick={togglePower} 
-              className={`p-2 rounded-full transition-colors border shadow-sm ${handyState.power ? 'bg-pink-100 dark:bg-pink-900 border-pink-500 text-pink-600' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 border-transparent'}`}
+              onClick={handleStop} 
+              className="p-2 rounded-full transition-colors border shadow-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 border-transparent"
+              title="Stop"
             >
               <Power size={20} />
             </button>
