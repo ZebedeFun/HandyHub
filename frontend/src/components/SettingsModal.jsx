@@ -51,6 +51,17 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <span>Creative</span>
               </div>
             </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Scene Delay (seconds)</label>
+                <span className="text-xs text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">{localSettings.sceneDelay || 2.5}s</span>
+              </div>
+              <input type="range" name="sceneDelay" min="0" max="10" step="0.5" value={localSettings.sceneDelay || 2.5} onChange={handleChange} className="w-full accent-pink-500" />
+              <div className="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-1">
+                <span>Instant</span>
+                <span>Wait 10s</span>
+              </div>
+            </div>
             <div className="border-t border-b dark:border-gray-700 py-4 my-4">
               <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Text-to-Speech (TTS) Settings</h3>
               <div className="mb-4">

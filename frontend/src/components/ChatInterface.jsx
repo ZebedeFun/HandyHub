@@ -1,6 +1,6 @@
 // Chat UI Component
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Mic, Bot, User, Sliders, Zap, Volume2, VolumeX, AlertOctagon } from 'lucide-react';
+import { Play, Square, Bot, Sliders, Zap, Volume2, VolumeX, AlertOctagon } from 'lucide-react';
 import { setSpeed, setStrokeZone } from '../services/handyService';
 import RemoteSimulator from './remote/RemoteSimulator';
 
@@ -11,12 +11,8 @@ const PERSONAS = [
 ];
 
 export default function ChatInterface({ settings }) {
-  const [messages, setMessages] = useState([
-    { role: 'assistant', text: "Hey there... I've been waiting for you." }
-  ]);
-  const [input, setInput] = useState('');
-  const [autoMode, setAutoMode] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [isActive, setIsActive] = useState(false);
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [showHandyPanel, setShowHandyPanel] = useState(false);
@@ -25,22 +21,19 @@ export default function ChatInterface({ settings }) {
   const [isPlayingQueue, setIsPlayingQueue] = useState(false);
   
   const messagesEndRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const autoModeRef = useRef(autoMode);
-  const inputRef = useRef(input);
   const messagesRef = useRef(messages);
-  const idleTimerRef = useRef(null);
   const isStreamingRef = useRef(false);
-  const isRecordingRef = useRef(isRecording);
   const currentAudioRef = useRef(null);
-  const isRecordingIntentRef = useRef(false);
   const settingsRef = useRef(settings);
+  const isActiveRef = useRef(isActive);
+  const loopTimerRef = useRef(null);
   
   const audioQueueRef = useRef([]);
   const isProcessingQueueRef = useRef(false);
 
   useEffect(() => { settingsRef.current = settings; }, [settings]);
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   useEffect(() => {
     if (currentAudioRef.current) {
@@ -48,28 +41,9 @@ export default function ChatInterface({ settings }) {
     }
   }, [volume, isMuted]);
 
-  useEffect(() => { autoModeRef.current = autoMode; }, [autoMode]);
-  useEffect(() => { 
-    inputRef.current = input; 
-    resetIdleTimer();
-  }, [input]);
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
-  useEffect(() => { 
-    isRecordingRef.current = isRecording;
-    resetIdleTimer();
-    return () => { if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
-  }, [autoMode, isRecording]);
-
-  const resetIdleTimer = () => {
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-    if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current && !inputRef.current.trim()) {
-      idleTimerRef.current = setTimeout(() => {
-        if (autoModeRef.current && !isRecordingRef.current && !isStreamingRef.current && !inputRef.current.trim()) {
-          handleSend(null, true);
-        }
-      }, 10000 + Math.random() * 5000); // Trigger between 10 to 15 seconds
-    }
-  };
+  useEffect(() => {
+    return () => { if (loopTimerRef.current) clearTimeout(loopTimerRef.current); };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -78,78 +52,6 @@ export default function ChatInterface({ settings }) {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  // STT: Start Recording
-  const startRecording = async () => {
-    if (!settings.googleApiKey) {
-      alert("Please configure your Google API Key in Settings first.");
-      return;
-    }
-    isRecordingIntentRef.current = true;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      if (!isRecordingIntentRef.current) {
-        // User released the button before mic access was granted
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-
-      // Try to enforce webm/opus for Google STT compatibility
-      let mimeType = '';
-      if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-        mimeType = 'audio/webm;codecs=opus';
-      } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-        mimeType = 'audio/webm';
-      }
-
-      mediaRecorderRef.current = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      audioChunksRef.current = [];
-
-      mediaRecorderRef.current.ondataavailable = (e) => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-
-      mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
-        const formData = new FormData();
-        formData.append('audio', audioBlob);
-        formData.append('googleApiKey', settings.googleApiKey);
-
-        try {
-          const res = await fetch('/api/stt', { method: 'POST', body: formData });
-          const data = await res.json();
-          if (data.text) {
-            const combinedText = inputRef.current + (inputRef.current ? ' ' : '') + data.text;
-            if (autoModeRef.current && !isStreamingRef.current) {
-              setInput('');
-              handleSend(combinedText);
-            } else {
-              setInput(combinedText);
-            }
-          }
-        } catch (err) {
-          console.error('STT Error:', err);
-        }
-        stream.getTracks().forEach(track => track.stop()); // Release microphone
-      };
-
-      mediaRecorderRef.current.start();
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Mic Error:", err);
-      alert("Microphone access is required for voice input.");
-    }
-  };
-
-  // STT: Stop Recording
-  const stopRecording = () => {
-    isRecordingIntentRef.current = false;
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-    }
-    setIsRecording(false);
-  };
 
   // Audio Queue System
   const fetchTTSAudio = async (text) => {
@@ -179,6 +81,9 @@ export default function ChatInterface({ settings }) {
   };
 
   const emergencyStop = () => {
+    setIsActive(false);
+    if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
+    
     // 1. Clear queue
     audioQueueRef.current = [];
     
@@ -200,7 +105,6 @@ export default function ChatInterface({ settings }) {
   };
 
   const pushToAudioQueue = (item) => {
-    // Start fetching TTS immediately in the background and store the promise
     const audioUrlPromise = fetchTTSAudio(item.text);
     audioQueueRef.current.push({ ...item, audioUrlPromise });
     processAudioQueue();
@@ -227,12 +131,10 @@ export default function ChatInterface({ settings }) {
         }
       };
 
-      // Await the pre-fetched background promise
       const audioUrl = await item.audioUrlPromise;
 
       if (!audioUrl) {
         executeActions();
-        // Simulate reading delay (roughly 15 chars per second)
         const delayMs = Math.max(1000, (item.text.length / 15) * 1000);
         await new Promise(r => setTimeout(r, delayMs));
         continue;
@@ -248,7 +150,7 @@ export default function ChatInterface({ settings }) {
         };
         audio.onended = resolve;
         audio.onerror = resolve;
-        audio.onpause = resolve; // If emergency stop pauses the audio, resolve to exit loop
+        audio.onpause = resolve; 
         
         audio.play().catch((err) => {
           console.error("Audio playback error:", err);
@@ -262,39 +164,49 @@ export default function ChatInterface({ settings }) {
 
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
+    
+    // Auto-loop if active
+    if (isActiveRef.current && !isStreamingRef.current) {
+        const delay = (settingsRef.current.sceneDelay || 2.5) * 1000;
+        if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
+        loopTimerRef.current = setTimeout(() => {
+            if (isActiveRef.current) {
+                generateNextScene();
+            }
+        }, delay);
+    }
   };
 
-  const handleSend = async (overrideText = null, isAutoContinue = false) => {
-    if (isStreamingRef.current) return;
+  const startExperience = () => {
+      if (!settings.llmApiKey) {
+          alert("Please configure your LLM API Key in Settings.");
+          return;
+      }
+      setIsActive(true);
+      if (messages.length === 0) {
+          generateNextScene(true);
+      } else {
+          generateNextScene();
+      }
+  };
 
-    const isEvent = overrideText && typeof overrideText === 'object';
-    const userText = isEvent || !overrideText ? inputRef.current : overrideText;
-
-    if (!isAutoContinue && (!userText.trim() || !settings.llmApiKey)) {
-        if (!settings.llmApiKey) alert("Please configure your LLM API Key in Settings.");
-        return;
-    }
+  const generateNextScene = async (isFirst = false) => {
+    if (isStreamingRef.current || !isActiveRef.current) return;
     
-    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
     isStreamingRef.current = true;
 
-    let newMessages = messagesRef.current;
     let apiMessages = [];
 
-    if (!isAutoContinue) {
-        setInput('');
-        newMessages = [...messagesRef.current, { role: 'user', text: userText }];
-        apiMessages = newMessages.map((m, i) => {
-            if (i === newMessages.length - 1 && m.role === 'user') {
-                 return { role: m.role, content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n${m.text}` };
-            }
-            return { role: m.role, content: m.text };
-        });
+    if (isFirst) {
+        apiMessages = [
+            { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n(Please start the scene and begin playing with me)` }
+        ];
     } else {
-        apiMessages = [...newMessages.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n(Please continue the scene, moving the situation slowly forward)` }];
+        apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n(Please continue the scene, moving the situation slowly forward)` }];
     }
 
-    setMessages([...newMessages, { role: 'assistant', text: '' }]);
+    setMessages(prev => [...prev, { role: 'assistant', text: '' }]);
     
     try {
         const basePrompt = settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha');
@@ -327,6 +239,11 @@ export default function ChatInterface({ settings }) {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            if (!isActiveRef.current) {
+                // If user stopped, abort processing
+                reader.cancel();
+                break;
+            }
 
             const chunk = decoder.decode(value, { stream: true });
             const lines = chunk.split('\n');
@@ -381,7 +298,6 @@ export default function ChatInterface({ settings }) {
                             }
                         }
 
-                        // Check for sentence boundaries to chunk audio
                         const boundaryMatch = ttsBuffer.match(/([.!?\n])\s+/);
                         if (boundaryMatch) {
                           const boundaryIndex = boundaryMatch.index + boundaryMatch[1].length;
@@ -400,15 +316,12 @@ export default function ChatInterface({ settings }) {
                             return updated;
                         });
 
-                    } catch (e) {
-                        // Ignore JSON parse errors for incomplete chunks
-                    }
+                    } catch (e) {}
                 }
             }
         }
         
-        // After streaming ends, flush anything remaining
-        if (streamBuffer) {
+        if (isActiveRef.current && streamBuffer) {
             ttsBuffer += streamBuffer;
             textToDisplay += streamBuffer;
             setMessages(prev => {
@@ -418,7 +331,7 @@ export default function ChatInterface({ settings }) {
             });
         }
 
-        if (ttsBuffer.trim().length > 0) {
+        if (isActiveRef.current && ttsBuffer.trim().length > 0) {
             pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
         }
         
@@ -426,20 +339,28 @@ export default function ChatInterface({ settings }) {
         console.error("Chat Error:", err);
     } finally {
         isStreamingRef.current = false;
-        resetIdleTimer();
+        // If queue isn't processing anymore (e.g., nothing was added), we should trigger next loop immediately
+        if (isActiveRef.current && audioQueueRef.current.length === 0 && !isProcessingQueueRef.current) {
+            const delay = (settingsRef.current.sceneDelay || 2.5) * 1000;
+            if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
+            loopTimerRef.current = setTimeout(() => {
+                if (isActiveRef.current) generateNextScene();
+            }, delay);
+        }
     }
   };
 
   return (
-    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 max-w-4xl mx-auto w-full shadow-lg border-x border-transparent dark:border-gray-800 transition-colors">
-      <div className="px-4 py-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 flex justify-between items-center transition-colors overflow-x-auto">
-        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:block">AI Partner</span>
+    <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 max-w-4xl mx-auto w-full shadow-lg border-x border-transparent dark:border-gray-800 transition-colors relative">
+      <div className="px-4 py-3 bg-white dark:bg-gray-800 border-b dark:border-gray-700 flex justify-between items-center transition-colors overflow-x-auto relative z-10">
+        <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:block">Passive Experience</span>
         <div className="flex items-center space-x-3 sm:space-x-4 ml-auto">
           <div className="flex items-center space-x-2 border-r pr-3 sm:pr-4 border-gray-200 dark:border-gray-700">
             <select
               value={selectedPersona.id}
               onChange={(e) => setSelectedPersona(PERSONAS.find(p => p.id === e.target.value))}
-              className="bg-gray-100 dark:bg-gray-700 border-none text-sm rounded-lg px-2 py-1 text-gray-700 dark:text-gray-300 outline-none"
+              disabled={isActive}
+              className="bg-gray-100 dark:bg-gray-700 border-none text-sm rounded-lg px-2 py-1 text-gray-700 dark:text-gray-300 outline-none disabled:opacity-50"
             >
               {PERSONAS.map(p => (
                 <option key={p.id} value={p.id}>{p.name}</option>
@@ -473,17 +394,6 @@ export default function ChatInterface({ settings }) {
             <Sliders size={16} />
             <span className="hidden sm:inline">Panel</span>
           </button>
-          <label className="flex items-center space-x-2 text-sm cursor-pointer border-l pl-3 sm:pl-4 border-gray-200 dark:border-gray-700">
-            <input type="checkbox" checked={autoMode} onChange={(e) => setAutoMode(e.target.checked)} className="rounded text-pink-500 focus:ring-pink-500" />
-            <span className="text-gray-700 dark:text-gray-300 font-medium whitespace-nowrap">Auto Mode</span>
-          </label>
-          <button 
-            onClick={emergencyStop}
-            title="Emergency Stop"
-            className="flex items-center justify-center p-2 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-500 dark:hover:bg-red-900/50 transition-colors ml-2"
-          >
-            <AlertOctagon size={18} />
-          </button>
         </div>
       </div>
 
@@ -499,40 +409,69 @@ export default function ChatInterface({ settings }) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50 dark:bg-gray-900 transition-colors">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] rounded-2xl p-4 ${
-              msg.role === 'user' ? 'bg-pink-500 text-white rounded-br-none shadow-md' : 'bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-100 shadow-sm rounded-bl-none border border-gray-100 dark:border-gray-700'
-            }`}>
-              <div className="flex items-center space-x-2 mb-1 opacity-70 dark:text-gray-300">
-                {msg.role === 'assistant' ? <Bot size={14} /> : <User size={14} />}
-                <span className="text-xs font-semibold uppercase tracking-wider">
-                  {msg.role === 'user' ? 'You' : (settings.characterName || 'Samantha')}
-                </span>
+      {/* Cinematic View */}
+      <div className="flex-1 overflow-y-hidden relative flex flex-col justify-end p-8 pb-32 bg-gray-50 dark:bg-gray-900 transition-colors">
+        <div className="flex flex-col space-y-6 w-full max-w-3xl mx-auto">
+          {messages.map((msg, idx) => {
+            const isLast = idx === messages.length - 1;
+            // The further back the message, the smaller and more faded it gets.
+            const distance = messages.length - 1 - idx;
+            const opacity = isLast ? 'opacity-100' : distance === 1 ? 'opacity-60' : distance === 2 ? 'opacity-30' : 'opacity-0 hidden';
+            const scale = isLast ? 'scale-100' : distance === 1 ? 'scale-95 -translate-y-4' : distance === 2 ? 'scale-90 -translate-y-8' : 'scale-75';
+
+            return (
+              <div 
+                key={idx} 
+                className={`text-center transition-all duration-700 ease-in-out transform origin-bottom ${opacity} ${scale}`}
+              >
+                {isLast && (
+                    <div className="flex items-center justify-center space-x-2 mb-3 text-pink-500 dark:text-pink-400">
+                        <Bot size={20} />
+                        <span className="text-sm font-bold uppercase tracking-widest">
+                            {settings.characterName || 'Samantha'}
+                        </span>
+                    </div>
+                )}
+                <p className={`leading-relaxed whitespace-pre-wrap mx-auto font-medium ${isLast ? 'text-2xl md:text-3xl lg:text-4xl text-gray-800 dark:text-white' : 'text-xl md:text-2xl text-gray-500 dark:text-gray-400'}`}>
+                  {msg.text || (isStreamingRef.current && isLast ? <span className="animate-pulse">...</span> : "")}
+                </p>
               </div>
-              <p className="text-sm md:text-base leading-relaxed whitespace-pre-wrap">{msg.text}</p>
-            </div>
-          </div>
-        ))}
+            );
+          })}
+        </div>
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="bg-white dark:bg-gray-800 p-4 border-t dark:border-gray-700 transition-colors">
-        <div className="flex items-center space-x-3">
-          <button 
-            onMouseDown={startRecording} onMouseUp={stopRecording} onMouseLeave={stopRecording}
-            onTouchStart={startRecording} onTouchEnd={stopRecording}
-            className={`p-3 rounded-full flex-shrink-0 transition-colors ${isRecording ? 'bg-red-500 text-white shadow-inner' : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'}`}
-            title="Push to talk"
-          >
-            <Mic size={22} />
-          </button>
-          <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Type a message..." className="flex-1 border border-gray-300 dark:border-gray-600 rounded-full px-5 py-3 focus:outline-none focus:ring-2 focus:ring-pink-500 bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-white transition-colors" />
-          <button onClick={handleSend} className="p-3 bg-pink-500 text-white rounded-full flex-shrink-0 hover:bg-pink-600 transition-colors shadow-md">
-            <Send size={22} />
-          </button>
-        </div>
+      {/* Control Bar */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-50 via-gray-50 to-transparent dark:from-gray-900 dark:via-gray-900 pb-8 pt-24 px-4 flex justify-center z-10 pointer-events-none">
+          <div className="pointer-events-auto flex items-center space-x-4 bg-white dark:bg-gray-800 p-2 rounded-full shadow-2xl border dark:border-gray-700">
+            {!isActive ? (
+                <button 
+                  onClick={startExperience} 
+                  className="flex items-center justify-center space-x-2 bg-pink-500 hover:bg-pink-600 text-white px-8 py-4 rounded-full font-bold text-lg transition-all transform hover:scale-105 shadow-lg"
+                >
+                  <Play size={24} fill="currentColor" />
+                  <span>START EXPERIENCE</span>
+                </button>
+            ) : (
+                <>
+                    <button 
+                      onClick={emergencyStop} 
+                      className="flex items-center justify-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-8 py-4 rounded-full font-bold text-lg transition-all transform hover:scale-105 shadow-lg"
+                    >
+                      <Square size={24} fill="currentColor" />
+                      <span>STOP</span>
+                    </button>
+                    <button 
+                        onClick={emergencyStop}
+                        title="Emergency Stop"
+                        className="flex items-center justify-center w-14 h-14 rounded-full bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-500 dark:hover:bg-red-900/50 transition-colors"
+                    >
+                        <AlertOctagon size={24} />
+                    </button>
+                </>
+            )}
+          </div>
       </div>
     </div>
   );
