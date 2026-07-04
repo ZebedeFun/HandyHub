@@ -30,13 +30,38 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
   );
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 h-full flex flex-col">
-      <div className="flex items-center gap-2 mb-4 border-b border-gray-100 dark:border-gray-700 pb-3 shrink-0">
-        <Settings className="text-blue-500" />
-        <h2 className="text-lg font-bold text-gray-800 dark:text-white">Script Parameters</h2>
+    <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 w-full flex flex-col">
+      <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-gray-700 gap-4 shrink-0">
+        <div className="flex items-center gap-2">
+          <Settings className="text-blue-500" />
+          <h2 className="text-lg font-bold text-gray-800 dark:text-white">Script Parameters</h2>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={onGenerate}
+            className="py-2 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 transform hover:-translate-y-0.5"
+          >
+            <Play size={16} />
+            Generate Complete Script
+          </button>
+          
+          <button 
+            onClick={onDownload}
+            disabled={!canDownload}
+            className={`py-2 px-4 text-sm font-bold rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 ${
+              canDownload 
+                ? 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-600' 
+                : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 cursor-not-allowed border border-transparent'
+            }`}
+          >
+            <Download size={16} />
+            Download
+          </button>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto pr-2 space-y-6 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
         
         {/* Section 1: Behavior */}
         <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
@@ -68,6 +93,21 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
               />
             </div>
+
+            {params.blockSizeSec > 0 && (
+              <div className="pt-2 border-t border-gray-200 dark:border-gray-700/50 mt-2">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Transition Smoothing</label>
+                  <span className="text-xs font-mono text-blue-500">{params.transitionSec === 0 ? 'Instant' : `${params.transitionSec}s`}</span>
+                </div>
+                <input 
+                  type="range" min="0" max="10" name="transitionSec" 
+                  value={params.transitionSec} onChange={handleChange}
+                  className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <p className="text-[10px] text-gray-500 mt-1 leading-tight">Smoothly morph into the new pattern over this duration when a block ends.</p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -171,30 +211,6 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
         </div>
 
       </div>
-
-      <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700 flex flex-col gap-2 shrink-0">
-        <button 
-          onClick={onGenerate}
-          className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 transform hover:-translate-y-0.5"
-        >
-          <Play size={16} />
-          Generate Script
-        </button>
-        
-        <button 
-          onClick={onDownload}
-          disabled={!canDownload}
-          className={`w-full py-2.5 px-4 text-sm font-bold rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 ${
-            canDownload 
-              ? 'bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white border border-gray-200 dark:border-gray-600' 
-              : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 cursor-not-allowed border border-transparent'
-          }`}
-        >
-          <Download size={16} />
-          Download .funscript
-        </button>
-      </div>
-
     </div>
   );
 }
