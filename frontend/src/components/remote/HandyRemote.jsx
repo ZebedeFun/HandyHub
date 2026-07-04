@@ -197,6 +197,16 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
       stopRhythm();
       const newStroke = Math.max(0, padPosRef.current.stroke - 20);
       sendToDeviceRef.current(padPosRef.current.speed, newStroke);
+    } else if (transcript.includes('climax')) {
+      console.log(`[Voice Command] Matched "climax". Triggering max speed and stroke.`);
+      stopRhythm();
+      sendToDeviceRef.current(80, 100);
+      setClimaxState('climaxing');
+    } else if (transcript.includes('done') || transcript.includes('finished')) {
+      console.log(`[Voice Command] Matched "done/finished". Triggering slow and shallow aftercare.`);
+      stopRhythm();
+      sendToDeviceRef.current(20, 40);
+      setClimaxState('idle');
     } else if (transcript.includes('tease')) {
       console.log(`[Voice Command] Matched "tease". Triggering Tease preset.`);
       presetTease();
