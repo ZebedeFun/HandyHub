@@ -10,6 +10,12 @@ services:
     ports:
       - "3001:3001"
     restart: unless-stopped
+    networks:
+      - nginx-proxy-nw
     environment:
       - NODE_ENV=production
       - PORT=3001
+
+networks:
+  nginx-proxy-nw:
+    external: true
