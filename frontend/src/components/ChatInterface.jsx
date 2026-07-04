@@ -2,6 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Mic, Bot, User, Sliders, Zap, Volume2, VolumeX, AlertOctagon } from 'lucide-react';
 import { setSpeed, setStrokeZone } from '../services/handyService';
+import RemoteSimulator from './remote/RemoteSimulator';
 
 const PERSONAS = [
   { id: 'gentle', name: 'Gentle Guide', prompt: 'You are a gentle, caring, and encouraging guide. Use [HANDY_SPEED: 10-30] and [HANDY_STROKE: 30-60] to keep things slow and sensual. Occasionally pause or stop.' },
@@ -482,26 +483,13 @@ export default function ChatInterface({ settings }) {
       </div>
 
       {showHandyPanel && (
-        <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-4 shadow-inner flex flex-col sm:flex-row gap-4 items-center justify-between z-0 transition-colors">
-          <div className="flex items-center space-x-2 text-pink-500 font-semibold w-full sm:w-auto justify-center">
+        <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-4 shadow-inner flex flex-col items-center justify-center z-0 transition-colors w-full">
+          <div className="flex items-center space-x-2 text-pink-500 font-semibold w-full justify-center mb-[-10px] mt-2">
             <Zap size={20} />
-            <span>Hardware State</span>
+            <span>Hardware State — Speed: {handyState.speed}%, Max Depth: {handyState.stroke}%</span>
           </div>
-          <div className="flex items-center space-x-6 w-full max-w-md">
-            <div className="flex-1">
-              <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1 font-semibold">
-                <span className="uppercase tracking-wider">Speed</span>
-                <span className="font-mono bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-1 rounded">{handyState.speed}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5 shadow-inner overflow-hidden"><div className="bg-pink-500 h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${handyState.speed}%` }}></div></div>
-            </div>
-            <div className="flex-1">
-              <div className="flex justify-between text-xs text-gray-600 dark:text-gray-400 mb-1 font-semibold">
-                <span className="uppercase tracking-wider">Stroke Length</span>
-                <span className="font-mono bg-gray-100 dark:bg-gray-700 dark:text-gray-300 px-1 rounded">{handyState.stroke}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2.5 shadow-inner overflow-hidden"><div className="bg-purple-500 h-full rounded-full transition-all duration-300 ease-out" style={{ width: `${handyState.stroke}%` }}></div></div>
-            </div>
+          <div className="w-full max-w-lg mb-2">
+            <RemoteSimulator speed={handyState.speed} deviceMin={0} deviceMax={handyState.stroke} />
           </div>
         </div>
       )}
