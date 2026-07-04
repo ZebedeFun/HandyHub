@@ -1,6 +1,6 @@
 // Chat UI Component
 import React, { useState, useRef, useEffect } from 'react';
-import { Play, Square, Bot, Sliders, Zap, Volume2, VolumeX, AlertOctagon } from 'lucide-react';
+import { Play, Square, Bot, Sliders, Zap, Volume2, VolumeX, AlertOctagon, Flame, CheckCircle } from 'lucide-react';
 import { setSpeed, setStrokeZone } from '../services/handyService';
 import RemoteSimulator from './remote/RemoteSimulator';
 
@@ -19,6 +19,7 @@ export default function ChatInterface({ settings }) {
   const [handyState, setHandyState] = useState({ speed: 0, stroke: 100 });
   const [selectedPersona, setSelectedPersona] = useState(PERSONAS[0]);
   const [isPlayingQueue, setIsPlayingQueue] = useState(false);
+  const [finishState, setFinishState] = useState('idle');
   
   const messagesEndRef = useRef(null);
   const messagesRef = useRef(messages);
@@ -109,6 +110,44 @@ export default function ChatInterface({ settings }) {
     }
   };
 
+  const handleFinishClick = () => {
+    const s = settingsRef.current;
+    
+    // Stop current audio and clear queue
+    audioQueueRef.current = [];
+    isProcessingQueueRef.current = false;
+    setIsPlayingQueue(false);
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+    }
+    if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
+    
+    // Interrupt streaming if active
+    if (isStreamingRef.current) {
+        // We can't strictly abort the fetch without an AbortController, but we can set a flag.
+        // For now, setting isStreamingRef to false will allow generateNextScene to run again.
+        isStreamingRef.current = false; 
+    }
+
+    if (finishState === 'idle') {
+      if (s && s.handyKey) {
+        setSpeed(s.handyKey, 80);
+        setStrokeZone(s.handyKey, 0, 100);
+      }
+      setHandyState({ speed: 80, stroke: 100 });
+      setFinishState('finishing');
+      generateNextScene(false, "(The user is climaxing right now. Talk to them and encourage their orgasm!)");
+    } else {
+      if (s && s.handyKey) {
+        setSpeed(s.handyKey, 20);
+        setStrokeZone(s.handyKey, 0, 40);
+      }
+      setHandyState({ speed: 20, stroke: 40 });
+      setFinishState('idle');
+      generateNextScene(false, "(The user has just finished. Talk to them about it, praise them, and offer post-orgasm care or teasing depending on your persona.)");
+    }
+  };
+
   const pushToAudioQueue = (item) => {
     const audioUrlPromise = fetchTTSAudio(item.text);
     audioQueueRef.current.push({ ...item, audioUrlPromise });
@@ -196,7 +235,7 @@ export default function ChatInterface({ settings }) {
       }
   };
 
-  const generateNextScene = async (isFirst = false) => {
+  const generateNextScene = async (isFirst = false, overridePrompt = null) => {
     if (isStreamingRef.current || !isActiveRef.current) return;
     
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
@@ -204,7 +243,9 @@ export default function ChatInterface({ settings }) {
 
     let apiMessages = [];
 
-    if (isFirst) {
+    if (overridePrompt) {
+        apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n${overridePrompt}` }];
+    } else if (isFirst) {
         apiMessages = [
             { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n(Please start the scene and begin playing with me)` }
         ];
@@ -296,9 +337,8 @@ export default function ChatInterface({ settings }) {
                                     streamBuffer = streamBuffer.substring(closeBracketIndex + 1);
                                     progress = true;
                                 } else {
-                                    ttsBuffer += '[';
-                                    textToDisplay += '[';
-                                    streamBuffer = streamBuffer.substring(1);
+                                    // Swallow unrecognized bracket tags
+                                    streamBuffer = streamBuffer.substring(closeBracketIndex + 1);
                                     progress = true;
                                 }
                             }
@@ -398,18 +438,18 @@ export default function ChatInterface({ settings }) {
             className={`flex items-center space-x-1 text-sm font-medium transition-colors border-l pl-3 sm:pl-4 border-gray-200 dark:border-gray-700 ${showHandyPanel ? 'text-pink-600 dark:text-pink-400' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`}
           >
             <Sliders size={16} />
-            <span className="hidden sm:inline">Panel</span>
+            <span className="hidden sm:inline">Test Mode</span>
           </button>
         </div>
       </div>
 
       {showHandyPanel && (
-        <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-4 shadow-inner flex flex-col items-center justify-center z-0 transition-colors w-full">
-          <div className="flex items-center space-x-2 text-pink-500 font-semibold w-full justify-center mb-[-10px] mt-2">
-            <Zap size={20} />
-            <span>Hardware State — Speed: {handyState.speed}%, Max Depth: {handyState.stroke}%</span>
+        <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-2 shadow-inner flex flex-col items-center justify-center z-0 transition-colors w-full">
+          <div className="flex items-center space-x-2 text-pink-500 font-semibold w-full justify-center mb-1">
+            <Zap size={16} />
+            <span className="text-sm">Hardware State — Speed: {handyState.speed}%, Max Depth: {handyState.stroke}%</span>
           </div>
-          <div className="w-full max-w-lg mb-2">
+          <div className="w-full max-w-lg">
             <RemoteSimulator speed={handyState.speed} deviceMin={0} deviceMax={handyState.stroke} />
           </div>
         </div>
@@ -467,6 +507,13 @@ export default function ChatInterface({ settings }) {
                     >
                       <Square size={24} fill="currentColor" />
                       <span>STOP</span>
+                    </button>
+                    <button 
+                      onClick={handleFinishClick} 
+                      className={`flex items-center justify-center space-x-2 text-white px-8 py-4 rounded-full font-bold text-lg transition-all transform hover:scale-105 shadow-lg ${finishState === 'idle' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-purple-500 hover:bg-purple-600'}`}
+                    >
+                      {finishState === 'idle' ? <Flame size={24} fill="currentColor" /> : <CheckCircle size={24} fill="currentColor" />}
+                      <span>{finishState === 'idle' ? 'Finish!' : 'and Done!'}</span>
                     </button>
                     <button 
                         onClick={emergencyStop}
