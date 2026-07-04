@@ -10,9 +10,12 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
   
   const [settings, setSettings] = useState({
     handyKey: '',
+    ttsProvider: 'Google',
     googleApiKey: '',
     googleTtsType: 'Neural2',
     googleVoice: 'F',
+    kokoroUrl: 'http://localhost:8880/v1/audio/speech',
+    kokoroVoice: 'af_bella',
     llmApiKey: '',
     llmUrl: 'https://openrouter.ai/api/v1/chat/completions',
     llmModel: 'mistralai/mistral-7b-instruct:free',
@@ -23,10 +26,26 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
   });
 
   useEffect(() => {
-    const savedSettings = localStorage.getItem('handyTimeSettings');
-    if (savedSettings) {
-      setSettings(JSON.parse(savedSettings));
-    }
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (Object.keys(data).length > 0) {
+          setSettings(prev => ({ ...prev, ...data }));
+        } else {
+          // Fallback/migrate from localStorage
+          const savedSettings = localStorage.getItem('handyTimeSettings');
+          if (savedSettings) {
+            const parsed = JSON.parse(savedSettings);
+            setSettings(prev => ({ ...prev, ...parsed }));
+            fetch('/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(parsed)
+            });
+          }
+        }
+      })
+      .catch(err => console.error('Error loading settings from server:', err));
   }, []);
 
   // Monitor Handy Connection Status
@@ -49,10 +68,19 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
     return () => clearInterval(interval);
   }, [settings.handyKey]);
 
-  const saveSettings = (newSettings) => {
+  const saveSettings = async (newSettings) => {
     setSettings(newSettings);
-    localStorage.setItem('handyTimeSettings', JSON.stringify(newSettings));
     setIsSettingsOpen(false);
+    try {
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newSettings)
+      });
+      localStorage.setItem('handyTimeSettings', JSON.stringify(newSettings));
+    } catch (err) {
+      console.error('Error saving settings to server:', err);
+    }
   };
 
   return (

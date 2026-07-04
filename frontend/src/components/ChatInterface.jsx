@@ -137,12 +137,22 @@ export default function ChatInterface({ settings }) {
 
   // TTS: Playback AI Response
   const playTTS = async (text) => {
-    if (!settings.googleApiKey || isMuted) return;
+    if (isMuted) return;
+    if (settings.ttsProvider !== 'Kokoro' && !settings.googleApiKey) return;
+    
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, googleApiKey: settings.googleApiKey, googleTtsType: settings.googleTtsType, googleVoice: settings.googleVoice })
+        body: JSON.stringify({ 
+          text, 
+          ttsProvider: settings.ttsProvider,
+          googleApiKey: settings.googleApiKey, 
+          googleTtsType: settings.googleTtsType, 
+          googleVoice: settings.googleVoice,
+          kokoroUrl: settings.kokoroUrl,
+          kokoroVoice: settings.kokoroVoice
+        })
       });
       if (!res.ok) throw new Error('TTS fetch failed');
       const audio = new Audio(URL.createObjectURL(await res.blob()));
@@ -296,7 +306,8 @@ export default function ChatInterface({ settings }) {
         }
 
         // Play the generated text via TTS when done
-        if (visibleOutput && settings.googleApiKey) {
+        const canPlayTTS = settings.ttsProvider === 'Kokoro' ? !!settings.kokoroUrl : !!settings.googleApiKey;
+        if (visibleOutput && canPlayTTS) {
             playTTS(visibleOutput);
         }
         

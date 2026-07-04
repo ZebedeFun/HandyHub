@@ -51,35 +51,63 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <span>Creative</span>
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Google API Key</label>
-              <input type="password" name="googleApiKey" value={localSettings.googleApiKey || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="AIzaSy..." />
-            </div>
-            <div className="flex space-x-4">
-              <div className="w-1/2">
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Google Voice API</label>
-                <select name="googleTtsType" value={localSettings.googleTtsType || 'Neural2'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
-                  <option value="Standard">Standard</option>
-                  <option value="Wavenet">WaveNet</option>
-                  <option value="Neural2">Neural2</option>
-                  <option value="Journey">Journey</option>
+            <div className="border-t border-b dark:border-gray-700 py-4 my-4">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Text-to-Speech (TTS) Settings</h3>
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">TTS Provider</label>
+                <select name="ttsProvider" value={localSettings.ttsProvider || 'Google'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
+                  <option value="Google">Google API</option>
+                  <option value="Kokoro">Local Kokoro</option>
                 </select>
               </div>
-              <div className="w-1/2">
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Voice Identifier</label>
-                <select name="googleVoice" value={localSettings.googleVoice || 'F'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
-                  <option value="A">Voice A (Male)</option>
-                  <option value="B">Voice B (Male)</option>
-                  <option value="C">Voice C (Female)</option>
-                  <option value="D">Voice D (Male)</option>
-                  <option value="E">Voice E (Female)</option>
-                  <option value="F">Voice F (Female)</option>
-                  <option value="G">Voice G (Female)</option>
-                  <option value="H">Voice H (Female)</option>
-                  <option value="I">Voice I (Male)</option>
-                  <option value="J">Voice J (Male)</option>
-                </select>
-              </div>
+              
+              {(localSettings.ttsProvider === 'Google' || !localSettings.ttsProvider) && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Google API Key</label>
+                    <input type="password" name="googleApiKey" value={localSettings.googleApiKey || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="AIzaSy..." />
+                  </div>
+                  <div className="flex space-x-4">
+                    <div className="w-1/2">
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Google Voice API</label>
+                      <select name="googleTtsType" value={localSettings.googleTtsType || 'Neural2'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
+                        <option value="Standard">Standard</option>
+                        <option value="Wavenet">WaveNet</option>
+                        <option value="Neural2">Neural2</option>
+                        <option value="Journey">Journey</option>
+                      </select>
+                    </div>
+                    <div className="w-1/2">
+                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Voice Identifier</label>
+                      <select name="googleVoice" value={localSettings.googleVoice || 'F'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
+                        <option value="A">Voice A (Male)</option>
+                        <option value="B">Voice B (Male)</option>
+                        <option value="C">Voice C (Female)</option>
+                        <option value="D">Voice D (Male)</option>
+                        <option value="E">Voice E (Female)</option>
+                        <option value="F">Voice F (Female)</option>
+                        <option value="G">Voice G (Female)</option>
+                        <option value="H">Voice H (Female)</option>
+                        <option value="I">Voice I (Male)</option>
+                        <option value="J">Voice J (Male)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {localSettings.ttsProvider === 'Kokoro' && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Kokoro URL Endpoint</label>
+                    <input type="text" name="kokoroUrl" value={localSettings.kokoroUrl || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="http://localhost:8880/v1/audio/speech" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Kokoro Voice</label>
+                    <input type="text" name="kokoroVoice" value={localSettings.kokoroVoice || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="e.g. af_bella" />
+                  </div>
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Character Name</label>

@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -98,29 +99,83 @@ app.post('/api/stt', upload.single('audio'), async (req, res) => {
     }
 });
 
+// Settings Endpoints
+const settingsPath = path.join(__dirname, 'settings.json');
+
+app.get('/api/settings', (req, res) => {
+    try {
+        if (fs.existsSync(settingsPath)) {
+            const data = fs.readFileSync(settingsPath, 'utf8');
+            res.json(JSON.parse(data));
+        } else {
+            res.json({});
+        }
+    } catch (err) {
+        console.error('Error reading settings:', err);
+        res.status(500).json({ error: 'Failed to read settings' });
+    }
+});
+
+app.post('/api/settings', (req, res) => {
+    try {
+        fs.writeFileSync(settingsPath, JSON.stringify(req.body, null, 2), 'utf8');
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error saving settings:', err);
+        res.status(500).json({ error: 'Failed to save settings' });
+    }
+});
+
 // TTS Endpoint
 app.post('/api/tts', async (req, res) => {
     try {
-        const { text, googleApiKey, googleTtsType = 'Neural2', googleVoice = 'F' } = req.body;
-        if (!googleApiKey) return res.status(400).json({ error: 'Missing Google API Key' });
+        const { text, ttsProvider, googleApiKey, googleTtsType = 'Neural2', googleVoice = 'F', kokoroUrl, kokoroVoice } = req.body;
+        
+        if (ttsProvider === 'Kokoro') {
+            if (!kokoroUrl) return res.status(400).json({ error: 'Missing Kokoro URL' });
+            
+            const response = await fetch(kokoroUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: 'kokoro',
+                    input: text,
+                    voice: kokoroVoice || 'af_bella',
+                    response_format: 'mp3'
+                })
+            });
+            
+            if (!response.ok) {
+                const errText = await response.text();
+                throw new Error(errText || 'Kokoro TTS Error');
+            }
+            
+            const arrayBuffer = await response.arrayBuffer();
+            const audioBuffer = Buffer.from(arrayBuffer);
+            res.set('Content-Type', 'audio/mpeg');
+            res.send(audioBuffer);
+            
+        } else {
+            if (!googleApiKey) return res.status(400).json({ error: 'Missing Google API Key' });
 
-        const voiceName = `en-US-${googleTtsType}-${googleVoice}`;
+            const voiceName = `en-US-${googleTtsType}-${googleVoice}`;
 
-        const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${googleApiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                input: { text },
-                voice: { languageCode: 'en-US', name: voiceName },
-                audioConfig: { audioEncoding: 'MP3', speakingRate: 0.9 }
-            })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error?.message || 'TTS Error');
+            const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${googleApiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    input: { text },
+                    voice: { languageCode: 'en-US', name: voiceName },
+                    audioConfig: { audioEncoding: 'MP3', speakingRate: 0.9 }
+                })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error?.message || 'TTS Error');
 
-        const audioBuffer = Buffer.from(data.audioContent, 'base64');
-        res.set('Content-Type', 'audio/mpeg');
-        res.send(audioBuffer);
+            const audioBuffer = Buffer.from(data.audioContent, 'base64');
+            res.set('Content-Type', 'audio/mpeg');
+            res.send(audioBuffer);
+        }
     } catch (error) {
         console.error('TTS Error:', error);
         res.status(500).json({ error: error.message });
