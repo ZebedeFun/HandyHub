@@ -85,7 +85,7 @@ export const setStrokeZone = async (connectionKey, min, max) => {
   const safeMax = Math.min(100, Math.max(0, parseInt(max, 10)));
   
   try {
-    await fetch(`${API_BASE}/slider`, {
+    await fetch(`${API_BASE}/slide`, {
       method: 'PUT',
       headers: getHeaders(connectionKey),
       body: JSON.stringify({ min: safeMin, max: safeMax }),
