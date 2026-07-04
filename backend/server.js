@@ -127,7 +127,9 @@ app.post('/api/stt', upload.single('audio'), async (req, res) => {
 });
 
 // Settings Endpoints
-const settingsPath = path.join(__dirname, 'settings.json');
+const dataDir = path.join(__dirname, 'data');
+if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
+const settingsPath = path.join(dataDir, 'settings.json');
 
 app.get('/api/settings', (req, res) => {
     try {
