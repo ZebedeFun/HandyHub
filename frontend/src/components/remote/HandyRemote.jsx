@@ -8,7 +8,14 @@ import RemoteSimulator from './RemoteSimulator';
 export default function HandyRemote({ isDarkMode, toggleTheme }) {
   const navigate = useNavigate();
   
-  const [settings, setSettings] = useState({});
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('handyTimeSettings');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
   const [deviceStatus, setDeviceStatus] = useState('Disconnected');
   
   // Pad outputs (0-100)
@@ -121,7 +128,11 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   useEffect(() => {
     fetch('/api/settings')
       .then(r => r.json())
-      .then(data => setSettings(data))
+      .then(data => {
+        if (Object.keys(data).length > 0) {
+          setSettings(prev => ({ ...prev, ...data }));
+        }
+      })
       .catch(console.error);
   }, []);
 

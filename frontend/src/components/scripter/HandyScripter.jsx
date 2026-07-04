@@ -19,11 +19,25 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
   const [isPlaying, setIsPlaying] = useState(false);
   
   const [funscript, setFunscript] = useState(null);
-  const [settings, setSettings] = useState({});
+  const [settings, setSettings] = useState(() => {
+    try {
+      const saved = localStorage.getItem('handyTimeSettings');
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
   const [syncToHandy, setSyncToHandy] = useState(false);
 
   useEffect(() => {
-    fetch('/api/settings').then(r => r.json()).then(data => setSettings(data)).catch(console.error);
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(data => {
+        if (Object.keys(data).length > 0) {
+          setSettings(prev => ({ ...prev, ...data }));
+        }
+      })
+      .catch(console.error);
   }, []);
 
   const syncScriptToHandy = async (scriptJson) => {

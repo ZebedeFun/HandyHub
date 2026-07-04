@@ -10,22 +10,30 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [deviceStatus, setDeviceStatus] = useState('Disconnected'); // Disconnected, Connecting, Connected
   
-  const [settings, setSettings] = useState({
-    handyKey: '',
-    ttsProvider: 'Google',
-    googleApiKey: '',
-    googleTtsType: 'Neural2',
-    googleVoice: 'F',
-    kokoroUrl: 'http://localhost:8880/v1/audio/speech',
-    kokoroVoice: 'af_bella',
-    llmApiKey: '',
-    llmUrl: 'https://openrouter.ai/api/v1/chat/completions',
-    llmModel: 'mistralai/mistral-7b-instruct:free',
-    llmTemperature: 0.7,
-    characterName: 'Samantha',
-    characterDescription: 'an intimate girlfriend',
-    sceneDelay: 2.5,
-    systemPrompt: "You are [CHARACTER], and your name is [NAME]. You must maintain character at all times.\nKeep your responses short, ideally 1 or 2 paragraphs at a time.\nOnly use spoken dialogue. Never use asterisks for actions or roleplay (e.g., do not use *seductively whispers* or *gently runs fingers through your hair*). Instead, explain and describe what you are doing naturally within your spoken words.\nYou have physical connection to the user via a tactile device. You control the device using hidden text commands.\nWhenever the emotional or physical intensity of the conversation shifts, you MUST append a command to your response.\nUse the format [HANDY_SPEED:X] where X is 0 to 100.\nUse the format [HANDY_STROKE:X] where X is 0 to 100.\nExample: '[HANDY_SPEED:40][HANDY_STROKE:80] I've missed you so much today...'\nNever acknowledge the commands in your spoken text. Just use them naturally to match the mood.",
+  const [settings, setSettings] = useState(() => {
+    const defaultSettings = {
+      handyKey: '',
+      ttsProvider: 'Google',
+      googleApiKey: '',
+      googleTtsType: 'Neural2',
+      googleVoice: 'F',
+      kokoroUrl: 'http://localhost:8880/v1/audio/speech',
+      kokoroVoice: 'af_bella',
+      llmApiKey: '',
+      llmUrl: 'https://openrouter.ai/api/v1/chat/completions',
+      llmModel: 'mistralai/mistral-7b-instruct:free',
+      llmTemperature: 0.7,
+      characterName: 'Samantha',
+      characterDescription: 'an intimate girlfriend',
+      sceneDelay: 2.5,
+      systemPrompt: "You are [CHARACTER], and your name is [NAME]. You must maintain character at all times.\nKeep your responses short, ideally 1 or 2 paragraphs at a time.\nOnly use spoken dialogue. Never use asterisks for actions or roleplay (e.g., do not use *seductively whispers* or *gently runs fingers through your hair*). Instead, explain and describe what you are doing naturally within your spoken words.\nYou have physical connection to the user via a tactile device. You control the device using hidden text commands.\nWhenever the emotional or physical intensity of the conversation shifts, you MUST append a command to your response.\nUse the format [HANDY_SPEED:X] where X is 0 to 100.\nUse the format [HANDY_STROKE:X] where X is 0 to 100.\nExample: '[HANDY_SPEED:40][HANDY_STROKE:80] I've missed you so much today...'\nNever acknowledge the commands in your spoken text. Just use them naturally to match the mood.",
+    };
+    try {
+      const saved = localStorage.getItem('handyTimeSettings');
+      return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
+    } catch (e) {
+      return defaultSettings;
+    }
   });
 
   useEffect(() => {
@@ -33,19 +41,17 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
       .then(res => res.json())
       .then(data => {
         if (Object.keys(data).length > 0) {
-          setSettings(prev => ({ ...prev, ...data }));
+          setSettings(prev => {
+            const newSet = { ...prev, ...data };
+            localStorage.setItem('handyTimeSettings', JSON.stringify(newSet));
+            return newSet;
+          });
         } else {
-          // Fallback/migrate from localStorage
-          const savedSettings = localStorage.getItem('handyTimeSettings');
-          if (savedSettings) {
-            const parsed = JSON.parse(savedSettings);
-            setSettings(prev => ({ ...prev, ...parsed }));
-            fetch('/api/settings', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(parsed)
-            });
-          }
+          fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: localStorage.getItem('handyTimeSettings') || JSON.stringify(settings)
+          }).catch(() => {});
         }
       })
       .catch(err => console.error('Error loading settings from server:', err));
