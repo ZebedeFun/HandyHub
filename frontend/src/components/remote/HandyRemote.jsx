@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff } from 'lucide-react';
+import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone } from '../../services/handyService';
 import XYPad from './XYPad';
@@ -36,6 +36,12 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
 
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const recognitionRef = useRef(null);
+
+  const [isAudioReactActive, setIsAudioReactActive] = useState(false);
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const audioSourceRef = useRef(null);
+  const audioReactIntervalRef = useRef(null);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -86,32 +92,123 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     };
   }, [isVoiceActive]);
 
+  useEffect(() => {
+    if (isAudioReactActive) {
+      const startAudioReact = async () => {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const AudioContext = window.AudioContext || window.webkitAudioContext;
+          const audioCtx = new AudioContext();
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          const source = audioCtx.createMediaStreamSource(stream);
+          source.connect(analyser);
+
+          audioContextRef.current = audioCtx;
+          analyserRef.current = analyser;
+          audioSourceRef.current = source;
+
+          console.log("[Audio React] Started listening to ambient volume...");
+
+          const bufferLength = analyser.frequencyBinCount;
+          const dataArray = new Uint8Array(bufferLength);
+          let lastLogTime = 0;
+          let lastSpeed = -1;
+
+          audioReactIntervalRef.current = setInterval(() => {
+            analyser.getByteFrequencyData(dataArray);
+            
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) { sum += dataArray[i]; }
+            const average = sum / bufferLength;
+
+            const now = Date.now();
+            let newSpeed = 0;
+            let rationale = "";
+
+            if (average < 15) {
+              newSpeed = 0;
+              rationale = `Ambient is quiet (vol: ${Math.round(average)}/255). Pausing.`;
+            } else if (average < 40) {
+              newSpeed = 30;
+              rationale = `Moderate ambient noise (vol: ${Math.round(average)}/255). Gentle speed.`;
+            } else if (average < 80) {
+              newSpeed = 60;
+              rationale = `Loud ambient noise (vol: ${Math.round(average)}/255). Moderate speed.`;
+            } else {
+              newSpeed = 100;
+              rationale = `Intense ambient noise! (vol: ${Math.round(average)}/255). Max speed!`;
+            }
+
+            if (newSpeed !== lastSpeed) {
+                console.log(`[Audio React] ${rationale} -> Changing Device Speed to ${newSpeed}%`);
+                lastSpeed = newSpeed;
+                stopRhythm(); // Ensure presets are stopped
+                sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
+            }
+          }, 300);
+        } catch (err) {
+          console.error("[Audio React] error:", err);
+          alert("Could not access microphone for Audio React. Please ensure you are using HTTPS.");
+          setIsAudioReactActive(false);
+        }
+      };
+      startAudioReact();
+    } else {
+      if (audioReactIntervalRef.current) clearInterval(audioReactIntervalRef.current);
+      if (audioSourceRef.current) {
+        audioSourceRef.current.disconnect();
+        if (audioSourceRef.current.mediaStream) {
+            audioSourceRef.current.mediaStream.getTracks().forEach(t => t.stop());
+        }
+      }
+      if (audioContextRef.current) audioContextRef.current.close();
+      console.log("[Audio React] Stopped.");
+    }
+    
+    return () => {
+      if (audioReactIntervalRef.current) clearInterval(audioReactIntervalRef.current);
+    };
+  }, [isAudioReactActive]);
+
   const handleVoiceCommand = (transcript) => {
-    console.log("Voice Command Recognized:", transcript);
+    console.log(`[Voice Command] Heard: "${transcript}" -> Looking for keyword...`);
     if (transcript.includes('stop') || transcript.includes('pause')) {
+      console.log(`[Voice Command] Matched "stop/pause". Rationale: User requested stop. Stopping device.`);
       stopRhythm();
       sendToDeviceRef.current(0, padPosRef.current.stroke);
     } else if (transcript.includes('tease')) {
+      console.log(`[Voice Command] Matched "tease". Triggering Tease preset.`);
       presetTease();
     } else if (transcript.includes('blow')) {
+      console.log(`[Voice Command] Matched "blow". Triggering Blow preset.`);
       presetBlow();
     } else if (transcript.includes('deep') || transcript.includes('slow')) {
+      console.log(`[Voice Command] Matched "deep/slow". Triggering Slow Deep preset.`);
       presetSlowDeep();
     } else if (transcript.includes('pound') || transcript.includes('hard')) {
+      console.log(`[Voice Command] Matched "pound/hard". Triggering Pounding preset.`);
       presetPounding();
     } else if (transcript.includes('flutter') || transcript.includes('vibrate')) {
+      console.log(`[Voice Command] Matched "flutter/vibrate". Triggering Vibrate preset.`);
       presetVibrate();
     } else if (transcript.includes('edge') || transcript.includes('edging')) {
+      console.log(`[Voice Command] Matched "edge/edging". Triggering Edging preset.`);
       presetEdging();
     } else if (transcript.includes('mix')) {
+      console.log(`[Voice Command] Matched "mix". Triggering Mix preset.`);
       presetMix();
     } else if (transcript.includes('random')) {
+      console.log(`[Voice Command] Matched "random". Triggering Random preset.`);
       presetRandom();
     } else if (transcript.includes('organic') || transcript.includes('magic')) {
+      console.log(`[Voice Command] Matched "organic/magic". Triggering Organic preset.`);
       presetOrganic();
     } else if (transcript.includes('faster')) {
+      console.log(`[Voice Command] Matched "faster". Increasing max speed limit by 20.`);
       setLimitMaxSpeed(prev => Math.min(100, prev + 20));
     } else if (transcript.includes('slower')) {
+      console.log(`[Voice Command] Matched "slower". Decreasing max speed limit by 20.`);
       setLimitMaxSpeed(prev => Math.max(0, prev - 20));
     }
   };
@@ -380,6 +477,13 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
         
         <div className="flex items-center gap-4">
           <div className="flex items-center space-x-3">
+            <button 
+              onClick={() => setIsAudioReactActive(!isAudioReactActive)} 
+              className={`p-2 rounded-full transition-colors border shadow-sm ${isAudioReactActive ? 'bg-purple-100 dark:bg-purple-900 border-purple-500 text-purple-600' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 border-transparent'}`}
+              title="Toggle Audio React (Ambient Volume Sync)"
+            >
+              {isAudioReactActive ? <Volume2 size={20} className="animate-pulse" /> : <VolumeX size={20} />}
+            </button>
             <button 
               onClick={() => setIsVoiceActive(!isVoiceActive)} 
               className={`p-2 rounded-full transition-colors border shadow-sm ${isVoiceActive ? 'bg-pink-100 dark:bg-pink-900 border-pink-500 text-pink-600' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 border-transparent'}`}
