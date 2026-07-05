@@ -2,21 +2,29 @@
 
 HandyTime is an AI-powered companion app for TheHandy device. It features interactive roleplay with large language models, immersive text-to-speech (via Google API or local Kokoro server), and automatic hardware control. 
 
+<img width="1215" height="569" alt="image" src="https://github.com/user-attachments/assets/a0ebd531-8327-40bb-8e17-b889aaecac3d" />
+
 ## Features & Modes
 
 HandyTime offers 3 distinct modes accessible from the Home screen:
 
 ### 1. AI Partner
 An interactive chat experience with your AI companion that physically connects with your device.
+<img width="1206" height="700" alt="image" src="https://github.com/user-attachments/assets/1e9c5aa5-058d-495c-af54-9e896798466b" />
+
 - **LLM Chat:** Connect to models via OpenRouter or Nano-GPT for dynamic text streaming.
 - **Text-to-Speech:** Supports Google Cloud TTS or a self-hosted Kokoro TTS server.
 - **Interactive Personas:** Choose between personas like Gentle Guide, Relentless Tease, or Strict Dominant.
 - **Hardware Sync:** Automatically parses AI instructions to control TheHandy speed and depth using tags.
 
 ### 2. Handy Scripter
+<img width="1311" height="951" alt="image" src="https://github.com/user-attachments/assets/06cf7839-cc47-4d8c-a740-ce430c048359" />
+
 Upload a video and procedurally generate a funscript file to synchronize your device with the action on screen.
 
 ### 3. Handy Remote
+<img width="1294" height="1274" alt="image" src="https://github.com/user-attachments/assets/bc5a99cb-bd9b-4800-a4ae-4491434370e1" />
+
 A distraction-free, one-touch remote control with gestures and rhythm presets.
 - **Audio React:** Syncs TheHandy speed to ambient noise or music through your microphone.
 - **Speech Recognition:** Control TheHandy hands-free using voice commands! Just enable the microphone and say commands like "faster", "deeper", "stop", or call out preset names like "tease" and "pounding".
@@ -63,12 +71,3 @@ If you don't already have Kokoro TTS running, you can deploy it automatically al
 docker compose up -d
 ```
 
-## Voice Commands / AI Tags (AI Partner Mode)
-The AI controls your hardware by embedding tags directly in its speech. These are parsed and stripped from the audio/text output:
-- `[HANDY_SPEED: 0-100]` sets the speed of the stroker.
-- `[HANDY_STROKE: 0-100]` sets the stroke depth/zone.
-
-**Example AI Prompt:**
-`[HANDY_SPEED: 80] [HANDY_STROKE: 100] Let's go fast and deep.`
-
-*The prompt engineering built into HandyTime automatically enforces the correct placement and syntax of these commands for the LLM.*
