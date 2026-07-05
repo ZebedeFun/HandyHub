@@ -1,7 +1,7 @@
 // Chat UI Component
 import React, { useState, useRef, useEffect } from 'react';
 import { Play, Square, Bot, Sliders, Zap, Volume2, VolumeX, AlertOctagon, Flame, CheckCircle } from 'lucide-react';
-import { setSpeed, setStrokeZone } from '../services/handyService';
+import { setSpeed, setStrokeZone, stopHamp } from '../services/handyService';
 import RemoteSimulator from './remote/RemoteSimulator';
 
 const PERSONAS = [
@@ -105,10 +105,10 @@ export default function ChatInterface({ settings }) {
       currentAudioRef.current.pause();
     }
     
-    // 4. Send stop command to device
+    // 4. Send stop command to device — must call hamp/stop, not just velocity=0
     const s = settingsRef.current;
     if (s && s.handyKey) {
-      setSpeed(s.handyKey, 0);
+      stopHamp(s.handyKey);
       setHandyState(prev => ({ ...prev, speed: 0 }));
     }
   };
@@ -169,7 +169,12 @@ export default function ChatInterface({ settings }) {
       const executeActions = () => {
         for (const action of item.actions) {
           if (action.type === 'SPEED') {
-            setSpeed(s.handyKey, action.val);
+            if (action.val === 0) {
+              // velocity=0 leaves HAMP running at idle — must use hamp/stop
+              stopHamp(s.handyKey);
+            } else {
+              setSpeed(s.handyKey, action.val);
+            }
             setHandyState(prev => ({ ...prev, speed: action.val }));
           } else if (action.type === 'STROKE') {
             setStrokeZone(s.handyKey, 0, action.val);
