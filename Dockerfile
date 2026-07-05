@@ -1,5 +1,5 @@
 # Stage 1: Build the frontend
-FROM --platform=linux/arm64 node:20-alpine AS frontend-builder
+FROM node:20-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm install
@@ -7,7 +7,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # Stage 2: Build the backend and serve
-FROM --platform=linux/arm64 node:20-alpine
+FROM node:20-alpine
 WORKDIR /app/backend
 
 # Install backend dependencies
