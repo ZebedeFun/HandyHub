@@ -71,3 +71,14 @@ If you don't already have Kokoro TTS running, you can deploy it automatically al
 docker compose up -d
 ```
 
+## AI Hardware Control Tags (AI Partner Mode)
+*Note: In AI Partner mode, you do not issue voice commands to control the device. Instead, the AI controls the device for you.*
+
+The AI manages your hardware by secretly embedding command tags directly into its generated text. These tags are parsed by the application to adjust the device, and then stripped out so you never see or hear them in the chat:
+- `[HANDY_SPEED: 0-100]` sets the speed of the stroker.
+- `[HANDY_STROKE: 0-100]` sets the stroke depth/zone.
+
+**Example internal AI logic:**
+`[HANDY_SPEED: 80] [HANDY_STROKE: 100] You're doing so well, let's go fast and deep.`
+
+*HandyTime's built-in prompt engineering automatically teaches the AI how to use these tags to sync its actions with its words.*
