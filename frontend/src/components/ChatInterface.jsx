@@ -222,7 +222,7 @@ export default function ChatInterface({ settings }) {
       s.systemPrompt
         .replace(/\[CHARACTER\]/g, s.characterDescription)
         .replace(/\[NAME\]/g, s.characterName || 'Samantha'),
-      'KEEP YOUR RESPONSE TO ONE SHORT SENTENCE ONLY. Do NOT include any [HANDY_...] tags.',
+      'Do NOT include any [HANDY_...] tags.',
     ].join('\n\n');
 
     // Consume an SSE stream into plain text
@@ -264,8 +264,8 @@ export default function ChatInterface({ settings }) {
 
     // Fire both LLM calls in parallel
     const [climaxText, doneText] = await Promise.all([
-      callLLM('[System: The user is about to climax RIGHT NOW. React with ONE passionate, encouraging sentence. No tags.]'),
-      callLLM('[System: The user has just finished and needs aftercare. Say ONE warm, tender sentence. No tags.]'),
+      callLLM('[System: The user is about to climax RIGHT NOW. React passionately and encouragingly. No tags.]'),
+      callLLM('[System: The user has just finished and needs aftercare. Respond warmly and tenderly. No tags.]'),
     ]);
 
     // Pre-fetch TTS for both in parallel while the user is still in the experience
@@ -515,7 +515,7 @@ export default function ChatInterface({ settings }) {
                         // Drain ALL sentence boundaries in the buffer (not just the first per chunk)
                         // so large LLM chunks push multiple sentences to TTS immediately.
                         let bm;
-                        while ((bm = ttsBuffer.match(/([.!?,\n;])\s+/))) {
+                        while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
                           const boundaryIndex = bm.index + bm[1].length;
                           const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
                           ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
