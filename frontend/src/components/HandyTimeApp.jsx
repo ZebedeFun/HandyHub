@@ -2,13 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ChatInterface from './ChatInterface';
 import SettingsModal from './SettingsModal';
-import { Settings, Activity, Sun, Moon, ArrowLeft } from 'lucide-react';
+import { Settings, Activity, Sun, Moon, ArrowLeft, RefreshCw } from 'lucide-react';
 import { checkStatus } from '../services/handyService';
 
 export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
   const navigate = useNavigate();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [deviceStatus, setDeviceStatus] = useState('Disconnected'); // Disconnected, Connecting, Connected
+  const [deviceStatus, setDeviceStatus] = useState('Disconnected');
+  const [isReconnecting, setIsReconnecting] = useState(false);
   
   const [settings, setSettings] = useState(() => {
     const defaultSettings = {
@@ -77,6 +78,15 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
     return () => clearInterval(interval);
   }, [settings.handyKey]);
 
+  const handleReconnect = async () => {
+    if (!settings.handyKey || isReconnecting) return;
+    setIsReconnecting(true);
+    setDeviceStatus('Connecting');
+    const connected = await checkStatus(settings.handyKey);
+    setDeviceStatus(connected ? 'Connected' : 'Disconnected');
+    setIsReconnecting(false);
+  };
+
   const saveSettings = async (newSettings) => {
     setSettings(newSettings);
     setIsSettingsOpen(false);
@@ -105,6 +115,20 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme }) {
           <div className="flex items-center space-x-2">
             <Activity size={18} className={deviceStatus === 'Connected' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'} />
             <span className="text-sm font-medium text-gray-600 dark:text-gray-300">{deviceStatus}</span>
+            {settings.handyKey && (
+              <button
+                onClick={handleReconnect}
+                disabled={isReconnecting}
+                title="Re-check connection"
+                className={`p-1.5 rounded-full transition-colors border border-gray-200 dark:border-gray-700 ${
+                  isReconnecting
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <RefreshCw size={13} className={`text-gray-500 dark:text-gray-400 ${isReconnecting ? 'animate-spin' : ''}`} />
+              </button>
+            )}
           </div>
           <div className="flex space-x-2 border-l pl-4 border-gray-200 dark:border-gray-700">
             <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">

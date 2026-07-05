@@ -14,17 +14,23 @@ const getHeaders = (connectionKey) => ({
 
 /**
  * Checks if the Handy is connected and online.
+ * Uses the correct /connected endpoint (not /status which returns mode info).
  * @param {string} connectionKey - The device connection key.
  */
 export const checkStatus = async (connectionKey) => {
   if (!connectionKey) return false;
   try {
-    const response = await fetch(`${API_BASE}/status`, {
+    const response = await fetch(`${API_BASE}/connected`, {
       method: 'GET',
       headers: getHeaders(connectionKey),
     });
+    if (!response.ok) return false;
     const data = await response.json();
-    return data.connected === true;
+    // Handy v2 /connected returns { connected: true/false } or just a boolean result
+    if (typeof data === 'boolean') return data;
+    if (typeof data.connected === 'boolean') return data.connected;
+    // Some firmware versions return { result: true } or a 200 with any body = connected
+    return response.status === 200;
   } catch (error) {
     console.error('Handy checkStatus error:', error);
     return false;
@@ -44,6 +50,24 @@ export const startHamp = async (connectionKey) => {
     return await response.json();
   } catch (error) {
     console.error('Handy startHamp error:', error);
+  }
+};
+
+/**
+ * Stops HAMP motion immediately.
+ * @param {string} connectionKey - The device connection key.
+ */
+export const stopHamp = async (connectionKey) => {
+  if (!connectionKey) return;
+  isHampActive = false; // Reset so next call to setSpeed restarts HAMP cleanly
+  try {
+    const response = await fetch(`${API_BASE}/hamp/stop`, {
+      method: 'PUT',
+      headers: getHeaders(connectionKey),
+    });
+    return await response.json();
+  } catch (error) {
+    console.error('Handy stopHamp error:', error);
   }
 };
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX, Flame, CheckCircle, HelpCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone } from '../../services/handyService';
+import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone, stopHamp as apiStopHamp } from '../../services/handyService';
 import XYPad from './XYPad';
 import RemoteSimulator from './RemoteSimulator';
 
@@ -17,6 +17,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     }
   });
   const [deviceStatus, setDeviceStatus] = useState('Disconnected');
+  const [isReconnecting, setIsReconnecting] = useState(false);
   
   // Pad outputs (0-100)
   const [padSpeed, setPadSpeed] = useState(0);
@@ -293,6 +294,15 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     return () => clearInterval(interval);
   }, [settings.handyKey]);
 
+  const handleReconnect = async () => {
+    if (!settings.handyKey || isReconnecting) return;
+    setIsReconnecting(true);
+    setDeviceStatus('Connecting');
+    const connected = await checkStatus(settings.handyKey);
+    setDeviceStatus(connected ? 'Connected' : 'Disconnected');
+    setIsReconnecting(false);
+  };
+
   // Clean up rhythms on unmount
   useEffect(() => {
     return () => stopRhythm();
@@ -362,9 +372,21 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     sendToDevice(newSpeed, newStroke);
   };
 
-  const handleStop = () => {
+  const handleStop = async () => {
     stopRhythm();
-    sendToDevice(0, 0);
+    // Reset throttle so the stop goes through immediately
+    lastApiCall.current = 0;
+    // Update visual state
+    setPadSpeed(0);
+    setPadStroke(0);
+    setActualSpeed(0);
+    setDeviceMin(0);
+    setDeviceMax(0);
+    padPosRef.current = { speed: 0, stroke: 0 };
+    // Send actual stop command to device (bypasses setSpeed throttle)
+    if (settings.handyKey) {
+      await apiStopHamp(settings.handyKey);
+    }
   };
 
   const stopRhythm = () => {
@@ -539,6 +561,20 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
           <div className="flex items-center space-x-2">
             <Activity size={20} className={deviceStatus === 'Connected' ? 'text-green-500' : 'text-gray-400 dark:text-gray-500'} />
             <span className="text-sm font-medium text-gray-600 dark:text-gray-300 hidden sm:inline">{deviceStatus}</span>
+            {settings.handyKey && (
+              <button
+                onClick={handleReconnect}
+                disabled={isReconnecting}
+                title="Re-check connection"
+                className={`p-1.5 rounded-full transition-colors border border-gray-200 dark:border-gray-700 ${
+                  isReconnecting
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+                }`}
+              >
+                <RefreshCw size={14} className={`text-gray-500 dark:text-gray-400 ${isReconnecting ? 'animate-spin' : ''}`} />
+              </button>
+            )}
           </div>
           <button 
             onClick={() => setTestMode(!testMode)} 
