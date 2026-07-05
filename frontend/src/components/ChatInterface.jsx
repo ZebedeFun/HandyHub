@@ -23,6 +23,7 @@ export default function ChatInterface({ settings }) {
   const [selectedPersona, setSelectedPersona] = useState(PERSONAS[0]);
   const [isPlayingQueue, setIsPlayingQueue] = useState(false);
   const [finishState, setFinishState] = useState('idle');
+  const [activeSentence, setActiveSentence] = useState('');
   
   const messagesEndRef = useRef(null);
   const messagesRef = useRef(messages);
@@ -99,6 +100,7 @@ export default function ChatInterface({ settings }) {
     // 2. Stop processing flags
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
+    setActiveSentence('');
     
     // 3. Stop current audio if playing
     if (currentAudioRef.current) {
@@ -120,6 +122,7 @@ export default function ChatInterface({ settings }) {
     audioQueueRef.current = [];
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
+    setActiveSentence('');
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
     }
@@ -165,12 +168,11 @@ export default function ChatInterface({ settings }) {
     while (audioQueueRef.current.length > 0) {
       const item = audioQueueRef.current.shift();
       const s = settingsRef.current;
-      
+
       const executeActions = () => {
         for (const action of item.actions) {
           if (action.type === 'SPEED') {
             if (action.val === 0) {
-              // velocity=0 leaves HAMP running at idle — must use hamp/stop
               stopHamp(s.handyKey);
             } else {
               setSpeed(s.handyKey, action.val);
@@ -183,23 +185,26 @@ export default function ChatInterface({ settings }) {
         }
       };
 
+      // Kick off next LLM generation early so it's buffered before queue drains
+      if (isActiveRef.current && !isStreamingRef.current && audioQueueRef.current.length < 5) {
+        generateNextScene();
+      }
+
       const audioUrl = item.audioUrlPromise ? await item.audioUrlPromise : null;
 
+      // Short breathing pause between scenes (replaces the old user-configured 2.5s gap)
       if (item.isSceneDelay) {
         await new Promise(r => setTimeout(r, item.delayMs));
-        if (isActiveRef.current && !isStreamingRef.current && audioQueueRef.current.length < 2) {
-            generateNextScene();
-        }
         continue;
       }
 
       if (!audioUrl) {
+        // No TTS configured — simulate timing based on text length
         executeActions();
-        const delayMs = Math.max(1000, ((item.text || '').length / 15) * 1000);
+        setActiveSentence(item.text || '');
+        const delayMs = Math.max(800, ((item.text || '').length / 15) * 1000);
         await new Promise(r => setTimeout(r, delayMs));
-        if (isActiveRef.current && !isStreamingRef.current && audioQueueRef.current.length < 2) {
-            generateNextScene();
-        }
+        setActiveSentence('');
         continue;
       }
 
@@ -207,33 +212,33 @@ export default function ChatInterface({ settings }) {
         const audio = new Audio(audioUrl);
         audio.volume = isMutedRef.current ? 0 : volumeRef.current;
         currentAudioRef.current = audio;
-        
+
         audio.onplay = () => {
           executeActions();
+          // Highlight the sentence currently being spoken
+          setActiveSentence(item.text || '');
         };
-        audio.onended = resolve;
-        audio.onerror = resolve;
-        audio.onpause = resolve; 
-        
+        const done = () => { setActiveSentence(''); resolve(); };
+        audio.onended = done;
+        audio.onerror = done;
+        audio.onpause = done;
+
         audio.play().catch((err) => {
-          console.error("Audio playback error:", err);
+          console.error('Audio playback error:', err);
           executeActions();
+          setActiveSentence('');
           setTimeout(resolve, 1000);
         });
       });
-      
+
       currentAudioRef.current = null;
-      
-      if (isActiveRef.current && !isStreamingRef.current && audioQueueRef.current.length < 2) {
-          generateNextScene();
-      }
     }
 
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
-    
+
     if (isActiveRef.current && !isStreamingRef.current) {
-        generateNextScene();
+      generateNextScene();
     }
   };
 
@@ -258,8 +263,9 @@ export default function ChatInterface({ settings }) {
     isStreamingRef.current = true;
 
     if (!isFirst && !overridePrompt) {
-        const delay = (settingsRef.current.sceneDelay || 2.5) * 1000;
-        audioQueueRef.current.push({ text: "", isSceneDelay: true, delayMs: delay, actions: [] });
+        // Short breath between scenes — generation is already started early by processAudioQueue
+        // so by the time this 400ms elapses, next sentences are usually already buffered.
+        audioQueueRef.current.push({ text: '', isSceneDelay: true, delayMs: 400, actions: [] });
         processAudioQueue();
     }
 
@@ -407,7 +413,8 @@ export default function ChatInterface({ settings }) {
         console.error("Chat Error:", err);
     } finally {
         isStreamingRef.current = false;
-        if (isActiveRef.current && audioQueueRef.current.length < 2) {
+        // If queue is still thin after this scene finished streaming, start the next one immediately
+        if (isActiveRef.current && audioQueueRef.current.length < 5) {
             generateNextScene();
         }
     }
@@ -477,26 +484,43 @@ export default function ChatInterface({ settings }) {
         <div className="flex flex-col space-y-6 w-full max-w-3xl mx-auto">
           {messages.map((msg, idx) => {
             const isLast = idx === messages.length - 1;
-            // The further back the message, the smaller and more faded it gets.
             const distance = messages.length - 1 - idx;
             const opacity = isLast ? 'opacity-100' : distance === 1 ? 'opacity-60' : distance === 2 ? 'opacity-30' : 'opacity-0 hidden';
             const scale = isLast ? 'scale-100' : distance === 1 ? 'scale-95 -translate-y-4' : distance === 2 ? 'scale-90 -translate-y-8' : 'scale-75';
 
+            // Highlight the sentence currently being spoken in the last message
+            const renderText = (text) => {
+              if (!isLast || !activeSentence || !text || !text.includes(activeSentence)) {
+                return text || (isStreamingRef.current && isLast ? <span className="animate-pulse">...</span> : '');
+              }
+              const idx2 = text.indexOf(activeSentence);
+              const before = text.substring(0, idx2);
+              const active = text.substring(idx2, idx2 + activeSentence.length);
+              const after = text.substring(idx2 + activeSentence.length);
+              return (
+                <>
+                  {before && <span className="opacity-40 transition-opacity duration-300">{before}</span>}
+                  <span className="text-pink-400 dark:text-pink-300 underline decoration-pink-400/40 underline-offset-8 transition-colors duration-300">{active}</span>
+                  {after && <span className="opacity-40 transition-opacity duration-300">{after}</span>}
+                </>
+              );
+            };
+
             return (
-              <div 
-                key={idx} 
+              <div
+                key={idx}
                 className={`text-center transition-all duration-700 ease-in-out transform origin-bottom ${opacity} ${scale}`}
               >
                 {isLast && (
-                    <div className="flex items-center justify-center space-x-2 mb-3 text-pink-500 dark:text-pink-400">
-                        <Bot size={20} />
-                        <span className="text-sm font-bold uppercase tracking-widest">
-                            {settings.characterName || 'Samantha'}
-                        </span>
-                    </div>
+                  <div className="flex items-center justify-center space-x-2 mb-3 text-pink-500 dark:text-pink-400">
+                    <Bot size={20} />
+                    <span className="text-sm font-bold uppercase tracking-widest">
+                      {settings.characterName || 'Samantha'}
+                    </span>
+                  </div>
                 )}
                 <p className={`leading-relaxed whitespace-pre-wrap mx-auto font-medium ${isLast ? 'text-2xl md:text-3xl lg:text-4xl text-gray-800 dark:text-white' : 'text-xl md:text-2xl text-gray-500 dark:text-gray-400'}`}>
-                  {msg.text || (isStreamingRef.current && isLast ? <span className="animate-pulse">...</span> : "")}
+                  {renderText(msg.text)}
                 </p>
               </div>
             );
