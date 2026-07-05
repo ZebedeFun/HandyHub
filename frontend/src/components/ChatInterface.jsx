@@ -24,6 +24,8 @@ export default function ChatInterface({ settings }) {
   const [isPlayingQueue, setIsPlayingQueue] = useState(false);
   const [finishState, setFinishState] = useState('idle');
   const [activeSentence, setActiveSentence] = useState('');
+  // Tracks which message index is currently being spoken (not just the newest one)
+  const [activeDisplayMsgIdx, setActiveDisplayMsgIdx] = useState(0);
   
   const messagesEndRef = useRef(null);
   const messagesRef = useRef(messages);
@@ -35,6 +37,8 @@ export default function ChatInterface({ settings }) {
   
   const audioQueueRef = useRef([]);
   const isProcessingQueueRef = useRef(false);
+  // Records the messages[] index of the scene currently being streamed into
+  const nextMsgIdxRef = useRef(0);
 
   const volumeRef = useRef(volume);
   const isMutedRef = useRef(isMuted);
@@ -156,7 +160,8 @@ export default function ChatInterface({ settings }) {
 
   const pushToAudioQueue = (item) => {
     const audioUrlPromise = fetchTTSAudio(item.text);
-    audioQueueRef.current.push({ ...item, audioUrlPromise });
+    // Stamp the message index so processAudioQueue knows which message this sentence belongs to
+    audioQueueRef.current.push({ ...item, audioUrlPromise, msgIdx: nextMsgIdxRef.current });
     processAudioQueue();
   };
 
@@ -201,6 +206,7 @@ export default function ChatInterface({ settings }) {
       if (!audioUrl) {
         // No TTS configured — simulate timing based on text length
         executeActions();
+        if (item.msgIdx !== undefined) setActiveDisplayMsgIdx(item.msgIdx);
         setActiveSentence(item.text || '');
         const delayMs = Math.max(800, ((item.text || '').length / 15) * 1000);
         await new Promise(r => setTimeout(r, delayMs));
@@ -215,7 +221,8 @@ export default function ChatInterface({ settings }) {
 
         audio.onplay = () => {
           executeActions();
-          // Highlight the sentence currently being spoken
+          // Advance the visible message only when audio actually starts — not when appended
+          if (item.msgIdx !== undefined) setActiveDisplayMsgIdx(item.msgIdx);
           setActiveSentence(item.text || '');
         };
         const done = () => { setActiveSentence(''); resolve(); };
@@ -244,14 +251,20 @@ export default function ChatInterface({ settings }) {
 
   const startExperience = () => {
       if (!settings.llmApiKey) {
-          alert("Please configure your LLM API Key in Settings.");
+          alert('Please configure your LLM API Key in Settings.');
           return;
       }
       setIsActive(true);
-      isActiveRef.current = true; // Update ref synchronously so generateNextScene doesn't abort
+      isActiveRef.current = true;
       if (messages.length === 0) {
+          // Fresh start
+          setActiveDisplayMsgIdx(0);
+          nextMsgIdxRef.current = 0;
           generateNextScene(true);
       } else {
+          // Resuming — show last spoken message until new speech starts
+          setActiveDisplayMsgIdx(messages.length - 1);
+          nextMsgIdxRef.current = messages.length;
           generateNextScene();
       }
   };
@@ -281,6 +294,8 @@ export default function ChatInterface({ settings }) {
         apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n(Please continue the scene, moving the situation slowly forward)` }];
     }
 
+    // Record the index this new message will occupy BEFORE appending it
+    nextMsgIdxRef.current = messagesRef.current.length;
     setMessages(prev => [...prev, { role: 'assistant', text: '' }]);
     
     try {
@@ -483,25 +498,38 @@ export default function ChatInterface({ settings }) {
       <div className="flex-1 overflow-y-hidden relative flex flex-col justify-end p-8 pb-32 bg-gray-50 dark:bg-gray-900 transition-colors">
         <div className="flex flex-col space-y-6 w-full max-w-3xl mx-auto">
           {messages.map((msg, idx) => {
-            const isLast = idx === messages.length - 1;
-            const distance = messages.length - 1 - idx;
-            const opacity = isLast ? 'opacity-100' : distance === 1 ? 'opacity-60' : distance === 2 ? 'opacity-30' : 'opacity-0 hidden';
-            const scale = isLast ? 'scale-100' : distance === 1 ? 'scale-95 -translate-y-4' : distance === 2 ? 'scale-90 -translate-y-8' : 'scale-75';
+            // Distance is relative to the SPOKEN message, not the newest appended one.
+            // dist < 0 = future (queued but not spoken yet) → hidden
+            // dist = 0 = currently being spoken → full size
+            // dist > 0 = already spoken → fading into the past
+            const dist = activeDisplayMsgIdx - idx;
+            const isActive = dist === 0;
 
-            // Highlight the sentence currently being spoken in the last message
+            if (dist < 0) return null; // hide future messages until they are spoken
+
+            const opacity = dist === 0 ? 'opacity-100'
+                          : dist === 1 ? 'opacity-60'
+                          : dist === 2 ? 'opacity-30'
+                          : 'opacity-0 pointer-events-none';
+            const scale   = dist === 0 ? 'scale-100'
+                          : dist === 1 ? 'scale-95 -translate-y-4'
+                          : dist === 2 ? 'scale-90 -translate-y-8'
+                          : 'scale-75';
+
+            // Highlight the sentence currently being spoken within the active message
             const renderText = (text) => {
-              if (!isLast || !activeSentence || !text || !text.includes(activeSentence)) {
-                return text || (isStreamingRef.current && isLast ? <span className="animate-pulse">...</span> : '');
+              if (!isActive || !activeSentence || !text || !text.includes(activeSentence)) {
+                return text || (isActive && isStreamingRef.current ? <span className="animate-pulse">...</span> : '');
               }
-              const idx2 = text.indexOf(activeSentence);
-              const before = text.substring(0, idx2);
-              const active = text.substring(idx2, idx2 + activeSentence.length);
-              const after = text.substring(idx2 + activeSentence.length);
+              const si = text.indexOf(activeSentence);
+              const before = text.substring(0, si);
+              const active = text.substring(si, si + activeSentence.length);
+              const after  = text.substring(si + activeSentence.length);
               return (
                 <>
                   {before && <span className="opacity-40 transition-opacity duration-300">{before}</span>}
                   <span className="text-pink-400 dark:text-pink-300 underline decoration-pink-400/40 underline-offset-8 transition-colors duration-300">{active}</span>
-                  {after && <span className="opacity-40 transition-opacity duration-300">{after}</span>}
+                  {after  && <span className="opacity-40 transition-opacity duration-300">{after}</span>}
                 </>
               );
             };
@@ -511,7 +539,7 @@ export default function ChatInterface({ settings }) {
                 key={idx}
                 className={`text-center transition-all duration-700 ease-in-out transform origin-bottom ${opacity} ${scale}`}
               >
-                {isLast && (
+                {isActive && (
                   <div className="flex items-center justify-center space-x-2 mb-3 text-pink-500 dark:text-pink-400">
                     <Bot size={20} />
                     <span className="text-sm font-bold uppercase tracking-widest">
@@ -519,7 +547,11 @@ export default function ChatInterface({ settings }) {
                     </span>
                   </div>
                 )}
-                <p className={`leading-relaxed whitespace-pre-wrap mx-auto font-medium ${isLast ? 'text-2xl md:text-3xl lg:text-4xl text-gray-800 dark:text-white' : 'text-xl md:text-2xl text-gray-500 dark:text-gray-400'}`}>
+                <p className={`leading-relaxed whitespace-pre-wrap mx-auto font-medium ${
+                  isActive
+                    ? 'text-2xl md:text-3xl lg:text-4xl text-gray-800 dark:text-white'
+                    : 'text-xl md:text-2xl text-gray-500 dark:text-gray-400'
+                }`}>
                   {renderText(msg.text)}
                 </p>
               </div>
