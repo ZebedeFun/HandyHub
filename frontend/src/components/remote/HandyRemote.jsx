@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX, Flame, CheckCircle } from 'lucide-react';
+import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX, Flame, CheckCircle, HelpCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone } from '../../services/handyService';
 import XYPad from './XYPad';
@@ -249,6 +249,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
   const [activePreset, setActivePreset] = useState(null);
   const [testMode, setTestMode] = useState(false);
   const [climaxState, setClimaxState] = useState('idle');
+  const [showHelpModal, setShowHelpModal] = useState(false);
 
   const handleClimaxClick = () => {
     stopRhythm();
@@ -553,6 +554,9 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
           >
             <Wind size={20} />
           </button>
+          <button onClick={() => setShowHelpModal(true)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-500 dark:text-gray-400" title="Help">
+            <HelpCircle size={20} />
+          </button>
           <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors border-l pl-4 border-gray-200 dark:border-gray-700">
             {isDarkMode ? '☀️' : '🌙'}
           </button>
@@ -692,6 +696,63 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
         </div>
 
       </main>
+
+      {/* Help Modal */}
+      {showHelpModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm transition-opacity">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-700">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-6 border-b pb-4 dark:border-gray-700">
+                <h2 className="text-2xl font-bold flex items-center gap-2 text-gray-800 dark:text-white">
+                  <HelpCircle className="text-pink-500" /> Remote Guide
+                </h2>
+                <button onClick={() => setShowHelpModal(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl transition-colors">&times;</button>
+              </div>
+              
+              <div className="space-y-6">
+                <section>
+                  <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2 mb-2"><Mic size={18}/> Voice Commands</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Enable the microphone to control your device hands-free. Try saying these keywords:</p>
+                  <ul className="text-sm space-y-2 text-gray-700 dark:text-gray-300">
+                    <li><strong className="text-pink-500">Stop / Pause</strong> - Instantly stops the device.</li>
+                    <li><strong className="text-blue-500">Faster / Slower</strong> - Adjusts speed by 20%.</li>
+                    <li><strong className="text-purple-500">Deeper / Shallower / Shorter</strong> - Adjusts stroke depth by 20%.</li>
+                    <li><strong className="text-orange-500">Climax</strong> - Max speed and depth immediately!</li>
+                    <li><strong className="text-green-500">Done / Finished</strong> - Starts gentle aftercare.</li>
+                  </ul>
+                </section>
+
+                <section>
+                  <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2 mb-2"><Sparkles size={18}/> Voice Presets</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">You can also trigger rhythm presets by saying their names:</p>
+                  <div className="grid grid-cols-2 gap-2 text-sm text-gray-700 dark:text-gray-300 font-medium">
+                    <div>• "Tease"</div>
+                    <div>• "Blow"</div>
+                    <div>• "Deep" or "Slow"</div>
+                    <div>• "Pound" or "Hard"</div>
+                    <div>• "Flutter" or "Vibrate"</div>
+                    <div>• "Edge" or "Edging"</div>
+                    <div>• "Mix"</div>
+                    <div>• "Random"</div>
+                    <div>• "Organic" or "Magic"</div>
+                  </div>
+                </section>
+
+                <section>
+                  <h3 className="text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2 mb-2"><Volume2 size={18}/> Audio React</h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Click the Audio React button to map the device speed to your ambient microphone volume. The louder the environment (or music), the faster it goes!
+                  </p>
+                </section>
+              </div>
+              
+              <div className="mt-8 pt-4 border-t dark:border-gray-700 text-center">
+                <button onClick={() => setShowHelpModal(false)} className="px-6 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-lg font-bold transition-colors shadow-md">Got It!</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

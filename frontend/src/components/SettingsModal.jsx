@@ -1,5 +1,6 @@
 // Settings Configuration Component
 import React, { useState } from 'react';
+import { Volume2, Square } from 'lucide-react';
 
 export default function SettingsModal({ settings, onSave, onClose }) {
   const [localSettings, setLocalSettings] = useState(settings);
@@ -15,6 +16,50 @@ export default function SettingsModal({ settings, onSave, onClose }) {
   };
 
   const fileInputRef = React.useRef(null);
+  const audioRef = React.useRef(null);
+  const [isPlayingTest, setIsPlayingTest] = useState(false);
+
+  const handleTestKokoro = async () => {
+    if (!localSettings.kokoroUrl) {
+      alert("Please enter a Kokoro URL first.");
+      return;
+    }
+    
+    if (isPlayingTest && audioRef.current) {
+      audioRef.current.pause();
+      setIsPlayingTest(false);
+      return;
+    }
+
+    setIsPlayingTest(true);
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          text: "Hello! This is a test of my voice. How do I sound?", 
+          ttsProvider: 'Kokoro',
+          kokoroUrl: localSettings.kokoroUrl,
+          kokoroVoice: localSettings.kokoroVoice || 'af_bella'
+        })
+      });
+      if (!res.ok) throw new Error("TTS fetch failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => setIsPlayingTest(false);
+      audio.onerror = () => { setIsPlayingTest(false); alert("Audio playback failed."); };
+      audio.play();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to test Kokoro TTS.");
+      setIsPlayingTest(false);
+    }
+  };
 
   const handleExport = () => {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(localSettings, null, 2));
@@ -148,7 +193,28 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Kokoro Voice</label>
-                    <input type="text" name="kokoroVoice" value={localSettings.kokoroVoice || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="e.g. af_bella" />
+                    <div className="flex gap-2">
+                      <select name="kokoroVoice" value={localSettings.kokoroVoice || 'af_bella'} onChange={handleChange} className="flex-1 border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
+                        <option value="af_bella">American Female (af_bella)</option>
+                        <option value="af_sarah">American Female (af_sarah)</option>
+                        <option value="af_nicole">American Female (af_nicole)</option>
+                        <option value="af_sky">American Female (af_sky)</option>
+                        <option value="am_adam">American Male (am_adam)</option>
+                        <option value="am_michael">American Male (am_michael)</option>
+                        <option value="bf_emma">British Female (bf_emma)</option>
+                        <option value="bf_isabella">British Female (bf_isabella)</option>
+                        <option value="bm_george">British Male (bm_george)</option>
+                        <option value="bm_lewis">British Male (bm_lewis)</option>
+                      </select>
+                      <button 
+                        type="button" 
+                        onClick={handleTestKokoro}
+                        className={`flex items-center justify-center px-4 rounded-lg font-bold transition-colors border ${isPlayingTest ? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-500' : 'bg-pink-100 text-pink-600 border-pink-500 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400 dark:border-pink-500'}`}
+                      >
+                        {isPlayingTest ? <Square size={18} className="mr-1" /> : <Volume2 size={18} className="mr-1" />}
+                        {isPlayingTest ? 'Stop' : 'Test'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
