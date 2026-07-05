@@ -202,7 +202,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                         <option value="am_adam">American Male (am_adam)</option>
                         <option value="am_michael">American Male (am_michael)</option>
                         <option value="bf_emma">British Female (bf_emma)</option>
-                        <option value="bf_isabella">British Female (bf_isabella)</option>
+                        <option value="bf_v0isabella">British Female (bf_isabella)</option>
                         <option value="bm_george">British Male (bm_george)</option>
                         <option value="bm_lewis">British Male (bm_lewis)</option>
                       </select>
