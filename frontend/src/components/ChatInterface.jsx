@@ -40,6 +40,12 @@ export default function ChatInterface({ settings }) {
   // Records the messages[] index of the scene currently being streamed into
   const nextMsgIdxRef = useRef(0);
 
+  // Button pre-cache: generate climax/done responses in background so buttons are instant
+  const climaxPrefetchRef = useRef({ status: 'idle', text: '', audioUrlPromise: null });
+  const donePrefetchRef   = useRef({ status: 'idle', text: '', audioUrlPromise: null });
+  const isPrefetchingRef  = useRef(false);
+  const sceneCountRef     = useRef(0);
+
   const volumeRef = useRef(volume);
   const isMutedRef = useRef(isMuted);
 
@@ -97,31 +103,37 @@ export default function ChatInterface({ settings }) {
   const emergencyStop = () => {
     setIsActive(false);
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
-    
+
     // 1. Clear queue
     audioQueueRef.current = [];
-    
+
     // 2. Stop processing flags
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
     setActiveSentence('');
-    
+
     // 3. Stop current audio if playing
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
     }
-    
+
     // 4. Send stop command to device — must call hamp/stop, not just velocity=0
     const s = settingsRef.current;
     if (s && s.handyKey) {
       stopHamp(s.handyKey);
       setHandyState(prev => ({ ...prev, speed: 0 }));
     }
+
+    // 5. Reset button pre-cache
+    climaxPrefetchRef.current = { status: 'idle', text: '', audioUrlPromise: null };
+    donePrefetchRef.current   = { status: 'idle', text: '', audioUrlPromise: null };
+    isPrefetchingRef.current  = false;
+    sceneCountRef.current     = 0;
   };
 
   const handleFinishClick = () => {
     const s = settingsRef.current;
-    
+
     // Stop current audio and clear queue
     audioQueueRef.current = [];
     isProcessingQueueRef.current = false;
@@ -131,13 +143,25 @@ export default function ChatInterface({ settings }) {
       currentAudioRef.current.pause();
     }
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
-    
-    // Interrupt streaming if active
-    if (isStreamingRef.current) {
-        // We can't strictly abort the fetch without an AbortController, but we can set a flag.
-        // For now, setting isStreamingRef to false will allow generateNextScene to run again.
-        isStreamingRef.current = false; 
-    }
+    isStreamingRef.current = false;
+
+    const injectPreCache = (cached, followUpPrompt) => {
+      if (cached.status !== 'ready' || !cached.text) return false;
+      // Inject the pre-cached sentence into the queue with its audio promise already resolved
+      const msgIdx = messagesRef.current.length;
+      nextMsgIdxRef.current = msgIdx;
+      setMessages(prev => [...prev, { role: 'assistant', text: cached.text }]);
+      audioQueueRef.current.push({
+        text: cached.text,
+        actions: [],
+        audioUrlPromise: cached.audioUrlPromise || fetchTTSAudio(cached.text),
+        msgIdx,
+      });
+      processAudioQueue();
+      // Queue the follow-up generation for after the pre-cached line finishes
+      generateNextScene(false, followUpPrompt);
+      return true;
+    };
 
     if (finishState === 'idle') {
       if (s && s.handyKey) {
@@ -146,7 +170,15 @@ export default function ChatInterface({ settings }) {
       }
       setHandyState({ speed: 80, stroke: 100 });
       setFinishState('finishing');
-      generateNextScene(false, "(The user is climaxing right now. Talk to them and encourage their orgasm!)");
+
+      const used = injectPreCache(
+        climaxPrefetchRef.current,
+        '(Continue encouraging the user passionately through their climax)',
+      );
+      climaxPrefetchRef.current = { status: 'idle', text: '', audioUrlPromise: null };
+      if (!used) {
+        generateNextScene(false, '(The user is climaxing right now. Talk to them and encourage their orgasm!)');
+      }
     } else {
       if (s && s.handyKey) {
         setSpeed(s.handyKey, 20);
@@ -154,8 +186,101 @@ export default function ChatInterface({ settings }) {
       }
       setHandyState({ speed: 20, stroke: 40 });
       setFinishState('idle');
-      generateNextScene(false, "(The user has just finished. Talk to them about it, praise them, and offer post-orgasm care or teasing depending on your persona.)");
+
+      const used = injectPreCache(
+        donePrefetchRef.current,
+        '(The user has just finished. Offer warm post-orgasm care or teasing depending on your persona.)',
+      );
+      donePrefetchRef.current = { status: 'idle', text: '', audioUrlPromise: null };
+      if (!used) {
+        generateNextScene(false, '(The user has just finished. Talk to them about it, praise them, and offer post-orgasm care or teasing depending on your persona.)');
+      }
     }
+  };
+
+  // ------------------------------------------------------------------
+  // Button pre-cache: fire two parallel LLM + TTS calls in the background
+  // so Climax / Done buttons play instantly when clicked.
+  // ------------------------------------------------------------------
+  const prefetchButtonContent = async () => {
+    if (isPrefetchingRef.current || !isActiveRef.current) return;
+    const s = settingsRef.current;
+    if (!s.llmApiKey) return;
+
+    isPrefetchingRef.current = true;
+    climaxPrefetchRef.current = { status: 'fetching', text: '', audioUrlPromise: null };
+    donePrefetchRef.current   = { status: 'fetching', text: '', audioUrlPromise: null };
+
+    // Take a snapshot of recent context (last 6 messages)
+    const recentCtx = messagesRef.current
+      .slice(-6)
+      .map(m => ({ role: m.role, content: m.text }));
+
+    const currentPersona = selectedPersona;
+    const sysPrompt = [
+      `IMPORTANT CURRENT MOOD / ROLE: ${currentPersona.prompt}`,
+      s.systemPrompt
+        .replace(/\[CHARACTER\]/g, s.characterDescription)
+        .replace(/\[NAME\]/g, s.characterName || 'Samantha'),
+      'KEEP YOUR RESPONSE TO ONE SHORT SENTENCE ONLY. Do NOT include any [HANDY_...] tags.',
+    ].join('\n\n');
+
+    // Consume an SSE stream into plain text
+    const streamToText = async (response) => {
+      if (!response.body) return '';
+      const reader  = response.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let out = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') { reader.cancel(); break; }
+          try { out += JSON.parse(payload).choices[0]?.delta?.content || ''; } catch (_) {}
+        }
+      }
+      return out.replace(/\[HANDY_(SPEED|STROKE):\s*\d+\s*\]/g, '').trim();
+    };
+
+    const callLLM = async (userMsg) => {
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [...recentCtx, { role: 'user', content: userMsg }],
+            apiKey: s.llmApiKey,
+            llmUrl: s.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
+            llmModel: s.llmModel || 'mistralai/mistral-7b-instruct:free',
+            llmTemperature: 0.9,
+            systemPrompt: sysPrompt,
+          }),
+        });
+        return res.ok ? await streamToText(res) : '';
+      } catch (_) { return ''; }
+    };
+
+    // Fire both LLM calls in parallel
+    const [climaxText, doneText] = await Promise.all([
+      callLLM('[System: The user is about to climax RIGHT NOW. React with ONE passionate, encouraging sentence. No tags.]'),
+      callLLM('[System: The user has just finished and needs aftercare. Say ONE warm, tender sentence. No tags.]'),
+    ]);
+
+    // Pre-fetch TTS for both in parallel while the user is still in the experience
+    climaxPrefetchRef.current = {
+      status: climaxText ? 'ready' : 'idle',
+      text: climaxText,
+      audioUrlPromise: climaxText ? fetchTTSAudio(climaxText) : null,
+    };
+    donePrefetchRef.current = {
+      status: doneText ? 'ready' : 'idle',
+      text: doneText,
+      audioUrlPromise: doneText ? fetchTTSAudio(doneText) : null,
+    };
+
+    isPrefetchingRef.current = false;
   };
 
   const pushToAudioQueue = (item) => {
@@ -442,6 +567,11 @@ export default function ChatInterface({ settings }) {
         console.error("Chat Error:", err);
     } finally {
         isStreamingRef.current = false;
+        sceneCountRef.current += 1;
+        // Pre-fetch button content after scene 2, then refresh every 3 scenes so context stays fresh
+        if (isActiveRef.current && sceneCountRef.current >= 2 && (sceneCountRef.current - 2) % 3 === 0) {
+            prefetchButtonContent(); // fire-and-forget, runs in background
+        }
         // If queue is still thin after this scene finished streaming, start the next one immediately
         if (isActiveRef.current && audioQueueRef.current.length < 5) {
             generateNextScene();
