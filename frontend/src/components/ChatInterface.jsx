@@ -387,15 +387,29 @@ export default function ChatInterface({ settings }) {
                             }
                         }
 
-                        const boundaryMatch = ttsBuffer.match(/([.!?,\n;])\s+/);
-                        if (boundaryMatch) {
-                          const boundaryIndex = boundaryMatch.index + boundaryMatch[1].length;
+                        // Drain ALL sentence boundaries in the buffer (not just the first per chunk)
+                        // so large LLM chunks push multiple sentences to TTS immediately.
+                        let bm;
+                        while ((bm = ttsBuffer.match(/([.!?,\n;])\s+/))) {
+                          const boundaryIndex = bm.index + bm[1].length;
                           const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
                           ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
-                          
                           if (sentence.length > 0) {
                             pushToAudioQueue({ text: sentence, actions: [...currentActions] });
                             currentActions = [];
+                          }
+                        }
+
+                        // Word-count early flush: if no punctuation boundary yet but we have
+                        // 10+ words, kick off TTS immediately rather than waiting for full sentence.
+                        // This slashes first-audio latency on long opening sentences.
+                        // Only flush when streamBuffer is clear (not mid-tag) to avoid broken text.
+                        if (ttsBuffer.trim().length > 0 && !streamBuffer.startsWith('[')) {
+                          const wordCount = ttsBuffer.trim().split(/\s+/).filter(w => w.length > 0).length;
+                          if (wordCount >= 10) {
+                            pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
+                            currentActions = [];
+                            ttsBuffer = '';
                           }
                         }
 
