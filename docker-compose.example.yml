@@ -32,10 +32,7 @@ services:
   #     - ONNX_NUM_THREADS=4
   #     - ONNX_INTER_OP_THREADS=2
   #     - PYTORCH_NUM_THREADS=4
-  #   volumes:
-  #     - ./kokoro/models:/app/api/src/models
-  #     - ./kokoro/voices:/app/api/src/voices
-  #     - ./kokoro/temp:/tmp/kokoro
+
 
 # Example: Uncomment and customise to connect to an nginx proxy network
 # networks:
