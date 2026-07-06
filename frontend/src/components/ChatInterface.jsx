@@ -10,7 +10,8 @@ const PERSONAS = [
   { id: 'dominant', name: 'Strict Dominant', prompt: 'You are a strict, commanding dominant. You give clear, absolute orders. Use fast speeds [HANDY_SPEED: 80-100] and full strokes [HANDY_STROKE: 100] to punish, and low speeds to make them wait.' },
   { id: 'daddy', name: 'Call me Daddy', prompt: "You are a playful, submissive female partner who loves calling the user 'Daddy'. You eagerly aim to please and constantly seek Daddy's approval, praising his size and stamina. Keep the pace eager and rewarding. Use moderate to fast speeds [HANDY_SPEED: 40-80] and deep strokes [HANDY_STROKE: 80-100] to give Daddy pleasure." },
   { id: 'momma', name: 'Loving Momma', prompt: 'You are a nurturing, doting momma figure. You smother the user with affection, praise, and care. Keep the pace comforting but arousing. Use [HANDY_SPEED: 20-50] and [HANDY_STROKE: 40-80] to slowly bring them pleasure.' },
-  { id: 'humiliation', name: 'Humiliation', prompt: 'You are a cruel and mocking figure who thrives on humiliating the user. You insult their stamina, desperation, and inadequacy. Use unpredictable bursts of speed [HANDY_SPEED: 0-100] and shallow teasing strokes [HANDY_STROKE: 10-30] to frustrate them.' }
+  { id: 'humiliation', name: 'Humiliation', prompt: 'You are a cruel and mocking figure who thrives on humiliating the user. You insult their stamina, desperation, and inadequacy. Use unpredictable bursts of speed [HANDY_SPEED: 0-100] and shallow teasing strokes [HANDY_STROKE: 10-30] to frustrate them.' },
+  { id: 'custom', name: 'Custom...', prompt: '' }
 ];
 
 export default function ChatInterface({ settings }) {
@@ -24,6 +25,7 @@ export default function ChatInterface({ settings }) {
   const [isPlayingQueue, setIsPlayingQueue] = useState(false);
   const [finishState, setFinishState] = useState('idle');
   const [activeSentence, setActiveSentence] = useState('');
+  const [customPersonaPrompt, setCustomPersonaPrompt] = useState('');
   // Tracks which message index is currently being spoken (not just the newest one)
   const [activeDisplayMsgIdx, setActiveDisplayMsgIdx] = useState(0);
   const [userViewMsgIdx, setUserViewMsgIdx] = useState(null);
@@ -291,8 +293,9 @@ export default function ChatInterface({ settings }) {
       .map(m => ({ role: m.role, content: m.text }));
 
     const currentPersona = selectedPersona;
+    const currentPersonaPrompt = currentPersona.id === 'custom' ? customPersonaPrompt : currentPersona.prompt;
     const sysPrompt = [
-      `IMPORTANT CURRENT MOOD / ROLE: ${currentPersona.prompt}`,
+      `IMPORTANT CURRENT MOOD / ROLE: ${currentPersonaPrompt}`,
       s.systemPrompt
         .replace(/\[CHARACTER\]/g, s.characterDescription)
         .replace(/\[NAME\]/g, s.characterName || 'Samantha'),
@@ -478,15 +481,16 @@ export default function ChatInterface({ settings }) {
     }
 
     let apiMessages = [];
+    const currentPersonaPrompt = selectedPersona.id === 'custom' ? customPersonaPrompt : selectedPersona.prompt;
 
     if (overridePrompt) {
-        apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n${overridePrompt}` }];
+        apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${currentPersonaPrompt}]\n\n${overridePrompt}` }];
     } else if (isFirst) {
         apiMessages = [
-            { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n(Please start the scene and begin playing with me)` }
+            { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${currentPersonaPrompt}]\n\n(Please start the scene and begin playing with me)` }
         ];
     } else {
-        apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${selectedPersona.prompt}]\n\n(Please continue the scene, moving the situation slowly forward)` }];
+        apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${currentPersonaPrompt}]\n\n(Please continue the scene, moving the situation slowly forward)` }];
     }
 
     // Record the index this new message will occupy BEFORE appending it
@@ -496,7 +500,7 @@ export default function ChatInterface({ settings }) {
     try {
         const basePrompt = settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha');
         const placementInstruction = "CRITICAL: You must place any [HANDY_...] tags AT THE VERY START of the sentence they apply to, or inline just before the action word. NEVER put tags at the end of a sentence.\nExample: '[HANDY_SPEED:80] Let's go much faster.'";
-        const finalSystemPrompt = `IMPORTANT CURRENT MOOD / ROLE: ${selectedPersona.prompt}\n\n${basePrompt}\n\n${placementInstruction}`;
+        const finalSystemPrompt = `IMPORTANT CURRENT MOOD / ROLE: ${currentPersonaPrompt}\n\n${basePrompt}\n\n${placementInstruction}`;
 
         const response = await fetch('/api/chat', {
             method: 'POST',
@@ -685,6 +689,23 @@ export default function ChatInterface({ settings }) {
           </button>
         </div>
       </div>
+
+      {selectedPersona.id === 'custom' && (
+        <div className="bg-gray-100 dark:bg-gray-800/50 border-b dark:border-gray-700 px-4 py-3 flex flex-col space-y-2 z-0">
+          <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Custom Experience Prompt</label>
+          <textarea
+            value={customPersonaPrompt}
+            onChange={(e) => setCustomPersonaPrompt(e.target.value)}
+            disabled={isActive}
+            className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg p-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-50 transition-colors"
+            rows="3"
+            placeholder="e.g., You are a romantic partner. Keep the pace slow and sensual by using [HANDY_SPEED: 20-40] and [HANDY_STROKE: 50-80]..."
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Define the AI's mood and suggest speed (0-100) and stroke (0-100) ranges using the tags [HANDY_SPEED: X] and [HANDY_STROKE: X].
+          </p>
+        </div>
+      )}
 
       {showHandyPanel && (
         <div className="bg-white dark:bg-gray-800 border-b dark:border-gray-700 px-4 py-2 shadow-inner flex flex-col items-center justify-center z-0 transition-colors w-full">
