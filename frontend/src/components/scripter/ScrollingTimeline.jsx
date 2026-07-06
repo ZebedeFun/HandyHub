@@ -10,13 +10,14 @@ const getSpeedColor = (deltaPos, deltaMs) => {
   return '#ef4444'; // Red
 };
 
-export default function ScrollingTimeline({ actions, currentTimeMs }) {
+export default function ScrollingTimeline({ actions, currentTimeMs, isPlaying, videoRef }) {
   const canvasRef = useRef(null);
+  const requestRef = useRef();
   
   // Total time window to display in ms (e.g. 6 seconds total: 3s left, 3s right)
   const windowMs = 6000; 
 
-  useEffect(() => {
+  const draw = (timeMs) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -29,8 +30,8 @@ export default function ScrollingTimeline({ actions, currentTimeMs }) {
     if (!actions || actions.length === 0) return;
 
     // Time boundaries
-    const startTime = currentTimeMs - windowMs / 2;
-    const endTime = currentTimeMs + windowMs / 2;
+    const startTime = timeMs - windowMs / 2;
+    const endTime = timeMs + windowMs / 2;
 
     // Draw background grid lines (horizontal)
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
@@ -108,17 +109,17 @@ export default function ScrollingTimeline({ actions, currentTimeMs }) {
     for (let i = 0; i < visibleActions.length - 1; i++) {
       const a1 = visibleActions[i];
       const a2 = visibleActions[i + 1];
-      if (currentTimeMs >= a1.at && currentTimeMs <= a2.at) {
-        const progress = (currentTimeMs - a1.at) / (a2.at - a1.at);
+      if (timeMs >= a1.at && timeMs <= a2.at) {
+        const progress = (timeMs - a1.at) / (a2.at - a1.at);
         currentPos = a1.pos + (a2.pos - a1.pos) * progress;
         break;
       }
     }
     
     // If before first action
-    if (visibleActions.length > 0 && currentTimeMs < visibleActions[0].at) currentPos = visibleActions[0].pos;
+    if (visibleActions.length > 0 && timeMs < visibleActions[0].at) currentPos = visibleActions[0].pos;
     // If after last action
-    if (visibleActions.length > 0 && currentTimeMs > visibleActions[visibleActions.length - 1].at) currentPos = visibleActions[visibleActions.length - 1].pos;
+    if (visibleActions.length > 0 && timeMs > visibleActions[visibleActions.length - 1].at) currentPos = visibleActions[visibleActions.length - 1].pos;
 
     const dotY = h - (currentPos / 100) * h;
     
@@ -133,8 +134,36 @@ export default function ScrollingTimeline({ actions, currentTimeMs }) {
     ctx.strokeStyle = '#ec4899'; // pink ring
     ctx.lineWidth = 3;
     ctx.stroke();
+  };
 
-  }, [actions, currentTimeMs]);
+  const animate = () => {
+    if (videoRef && videoRef.current) {
+      draw(videoRef.current.currentTime * 1000);
+    }
+    if (isPlaying) {
+      requestRef.current = requestAnimationFrame(animate);
+    }
+  };
+
+  useEffect(() => {
+    if (isPlaying) {
+      requestRef.current = requestAnimationFrame(animate);
+    } else {
+      if (videoRef && videoRef.current) {
+        draw(videoRef.current.currentTime * 1000);
+      } else {
+        draw(currentTimeMs);
+      }
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    }
+    return () => {
+      if (requestRef.current) {
+        cancelAnimationFrame(requestRef.current);
+      }
+    };
+  }, [isPlaying, actions, currentTimeMs, videoRef]);
 
   return (
     <div className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg overflow-hidden relative shadow-inner">

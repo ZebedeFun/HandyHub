@@ -325,6 +325,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
                 <ScrollingTimeline 
                   actions={funscript.actions} 
                   currentTimeMs={currentTimeMs} 
+                  isPlaying={isPlaying}
+                  videoRef={videoRef}
                 />
                 <div className="h-40">
                   <Heatmap 
