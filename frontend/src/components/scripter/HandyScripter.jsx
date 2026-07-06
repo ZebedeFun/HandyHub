@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import GenerationControls from './GenerationControls';
 import Heatmap from './Heatmap';
 import DeviceSimulator from './DeviceSimulator';
+import ScrollingTimeline from './ScrollingTimeline';
 import { generateProceduralScript, generatePartialScript, modifyPartialScript } from '../../services/scriptGenerator';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
 
@@ -318,17 +319,25 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
           </div>
 
           {/* Bottom: Heatmap Area */}
-          <div className="h-40 shrink-0 w-full">
+          <div className="flex flex-col gap-4 shrink-0 w-full pb-4">
             {funscript ? (
-              <Heatmap 
-                actions={funscript.actions} 
-                durationMs={durationMs} 
-                currentTimeMs={currentTimeMs} 
-                onRegenerateSelection={handleRegenerateSelection}
-                onModifySelection={handleModifySelection}
-              />
+              <>
+                <ScrollingTimeline 
+                  actions={funscript.actions} 
+                  currentTimeMs={currentTimeMs} 
+                />
+                <div className="h-40">
+                  <Heatmap 
+                    actions={funscript.actions} 
+                    durationMs={durationMs} 
+                    currentTimeMs={currentTimeMs} 
+                    onRegenerateSelection={handleRegenerateSelection}
+                    onModifySelection={handleModifySelection}
+                  />
+                </div>
+              </>
             ) : (
-              <div className="w-full h-full bg-gray-200 dark:bg-gray-800 rounded-lg flex items-center justify-center border border-gray-300 dark:border-gray-700 border-dashed">
+              <div className="w-full h-40 bg-gray-200 dark:bg-gray-800 rounded-lg flex items-center justify-center border border-gray-300 dark:border-gray-700 border-dashed">
                 <p className="text-gray-500 dark:text-gray-400">Generate a script to see the timeline heatmap</p>
               </div>
             )}
