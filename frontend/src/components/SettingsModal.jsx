@@ -107,8 +107,8 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               <input type="text" name="handyKey" value={localSettings.handyKey} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="e.g. 1234abcd..." />
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">LLM API Key (Nano-GPT / OpenRouter)</label>
-              <input type="password" name="llmApiKey" value={localSettings.llmApiKey} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" />
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">LLM API Key (Optional for Local LLMs)</label>
+              <input type="password" name="llmApiKey" value={localSettings.llmApiKey || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="Leave empty for local endpoints" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">LLM URL Endpoint</label>

@@ -26,6 +26,7 @@ export default function ChatInterface({ settings }) {
   const [activeSentence, setActiveSentence] = useState('');
   // Tracks which message index is currently being spoken (not just the newest one)
   const [activeDisplayMsgIdx, setActiveDisplayMsgIdx] = useState(0);
+  const [userViewMsgIdx, setUserViewMsgIdx] = useState(null);
   
   const messagesEndRef = useRef(null);
   const messagesRef = useRef(messages);
@@ -39,6 +40,10 @@ export default function ChatInterface({ settings }) {
   const isProcessingQueueRef = useRef(false);
   // Records the messages[] index of the scene currently being streamed into
   const nextMsgIdxRef = useRef(0);
+
+  const lastScrollTimeRef = useRef(0);
+  const touchStartYRef = useRef(0);
+  const autoResetTimerRef = useRef(null);
 
   // Button pre-cache: generate climax/done responses in background so buttons are instant
   const climaxPrefetchRef = useRef({ status: 'idle', text: '', audioUrlPromise: null });
@@ -62,7 +67,10 @@ export default function ChatInterface({ settings }) {
   }, [volume, isMuted]);
 
   useEffect(() => {
-    return () => { if (loopTimerRef.current) clearTimeout(loopTimerRef.current); };
+    return () => { 
+      if (loopTimerRef.current) clearTimeout(loopTimerRef.current); 
+      if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
+    };
   }, []);
 
   const scrollToBottom = () => {
@@ -72,6 +80,73 @@ export default function ChatInterface({ settings }) {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const resetAutoScrollTimer = () => {
+    if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
+    autoResetTimerRef.current = setTimeout(() => {
+      setUserViewMsgIdx(null);
+    }, 10000);
+  };
+
+  const shiftFocus = (direction) => {
+    const currentIdx = userViewMsgIdx !== null ? userViewMsgIdx : activeDisplayMsgIdx;
+    let nextIdx = currentIdx;
+
+    if (direction === -1) { // older
+      nextIdx = Math.max(0, currentIdx - 1);
+    } else { // newer
+      nextIdx = Math.min(activeDisplayMsgIdx, currentIdx + 1);
+    }
+
+    if (nextIdx !== currentIdx || userViewMsgIdx === null) {
+      if (nextIdx === activeDisplayMsgIdx) {
+        setUserViewMsgIdx(null);
+        if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
+      } else {
+        setUserViewMsgIdx(nextIdx);
+        resetAutoScrollTimer();
+      }
+    } else if (userViewMsgIdx !== null) {
+      resetAutoScrollTimer(); 
+    }
+  };
+
+  const handleWheel = (e) => {
+    if (messagesRef.current.length === 0) return;
+    const now = Date.now();
+    if (now - lastScrollTimeRef.current < 150) return;
+    
+    if (e.deltaY < 0) {
+      shiftFocus(-1);
+      lastScrollTimeRef.current = now;
+    } else if (e.deltaY > 0) {
+      shiftFocus(1);
+      lastScrollTimeRef.current = now;
+    }
+  };
+
+  const handleTouchStart = (e) => {
+    touchStartYRef.current = e.touches[0].clientY;
+  };
+
+  const handleTouchMove = (e) => {
+    if (messagesRef.current.length === 0) return;
+    const now = Date.now();
+    if (now - lastScrollTimeRef.current < 150) return;
+
+    const touchY = e.touches[0].clientY;
+    const deltaY = touchStartYRef.current - touchY;
+    
+    if (Math.abs(deltaY) < 30) return; 
+
+    if (deltaY < 0) {
+      shiftFocus(-1);
+    } else {
+      shiftFocus(1);
+    }
+    touchStartYRef.current = touchY;
+    lastScrollTimeRef.current = now;
+  };
 
   // Audio Queue System
   const fetchTTSAudio = async (text) => {
@@ -205,7 +280,6 @@ export default function ChatInterface({ settings }) {
   const prefetchButtonContent = async () => {
     if (isPrefetchingRef.current || !isActiveRef.current) return;
     const s = settingsRef.current;
-    if (!s.llmApiKey) return;
 
     isPrefetchingRef.current = true;
     climaxPrefetchRef.current = { status: 'fetching', text: '', audioUrlPromise: null };
@@ -375,10 +449,6 @@ export default function ChatInterface({ settings }) {
   };
 
   const startExperience = () => {
-      if (!settings.llmApiKey) {
-          alert('Please configure your LLM API Key in Settings.');
-          return;
-      }
       setIsActive(true);
       isActiveRef.current = true;
       if (messages.length === 0) {
@@ -628,17 +698,21 @@ export default function ChatInterface({ settings }) {
       )}
 
       {/* Cinematic View */}
-      <div className="flex-1 overflow-y-hidden relative flex flex-col justify-end p-8 pb-32 bg-gray-50 dark:bg-gray-900 transition-colors">
+      <div 
+        className="flex-1 overflow-y-hidden relative flex flex-col justify-end p-8 pb-32 bg-gray-50 dark:bg-gray-900 transition-colors"
+        onWheel={handleWheel}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+      >
         <div className="flex flex-col space-y-6 w-full max-w-3xl mx-auto">
           {messages.map((msg, idx) => {
-            // Distance is relative to the SPOKEN message, not the newest appended one.
-            // dist < 0 = future (queued but not spoken yet) → hidden
-            // dist = 0 = currently being spoken → full size
-            // dist > 0 = already spoken → fading into the past
-            const dist = activeDisplayMsgIdx - idx;
-            const isActive = dist === 0;
+            // Distance is relative to the SPOKEN message OR the user's scrolled view.
+            const displayTargetIdx = userViewMsgIdx !== null ? userViewMsgIdx : activeDisplayMsgIdx;
+            const dist = displayTargetIdx - idx;
+            const isFocus = dist === 0;
+            const isCurrentlySpoken = idx === activeDisplayMsgIdx;
 
-            if (dist < 0) return null; // hide future messages until they are spoken
+            if (dist < 0) return null; // hide messages newer than the focal point
 
             const opacity = dist === 0 ? 'opacity-100'
                           : dist === 1 ? 'opacity-60'
@@ -651,8 +725,8 @@ export default function ChatInterface({ settings }) {
 
             // Highlight the sentence currently being spoken within the active message
             const renderText = (text) => {
-              if (!isActive || !activeSentence || !text || !text.includes(activeSentence)) {
-                return text || (isActive && isStreamingRef.current ? <span className="animate-pulse">...</span> : '');
+              if (!isCurrentlySpoken || !activeSentence || !text || !text.includes(activeSentence)) {
+                return text || (isCurrentlySpoken && isStreamingRef.current ? <span className="animate-pulse">...</span> : '');
               }
               const si = text.indexOf(activeSentence);
               const before = text.substring(0, si);
@@ -672,7 +746,7 @@ export default function ChatInterface({ settings }) {
                 key={idx}
                 className={`text-center transition-all duration-700 ease-in-out transform origin-bottom ${opacity} ${scale}`}
               >
-                {isActive && (
+                {isFocus && (
                   <div className="flex items-center justify-center space-x-2 mb-3 text-pink-500 dark:text-pink-400">
                     <Bot size={20} />
                     <span className="text-sm font-bold uppercase tracking-widest">
@@ -681,7 +755,7 @@ export default function ChatInterface({ settings }) {
                   </div>
                 )}
                 <p className={`leading-relaxed whitespace-pre-wrap mx-auto font-medium ${
-                  isActive
+                  isFocus
                     ? 'text-2xl md:text-3xl lg:text-4xl text-gray-800 dark:text-white'
                     : 'text-xl md:text-2xl text-gray-500 dark:text-gray-400'
                 }`}>

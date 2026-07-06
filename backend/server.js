@@ -48,22 +48,23 @@ app.get('/api/hosted-script.csv', (req, res) => {
 app.post('/api/chat', async (req, res) => {
     const { messages, apiKey, llmUrl, llmModel, llmTemperature, systemPrompt } = req.body;
     
-    if (!apiKey) {
-        return res.status(400).json({ error: 'LLM API Key is required' });
-    }
     if (!llmUrl) {
         return res.status(400).json({ error: 'LLM URL is required' });
     }
 
     try {
+        const headers = {
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://handytime.local',
+            'X-Title': 'HandyTime'
+        };
+        if (apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
         const response = await fetch(llmUrl, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`,
-                'HTTP-Referer': 'https://handytime.local',
-                'X-Title': 'HandyTime'
-            },
+            headers: headers,
             body: JSON.stringify({
                 model: llmModel || 'mistralai/mistral-7b-instruct:free',
                 temperature: llmTemperature !== undefined ? llmTemperature : 0.7,
