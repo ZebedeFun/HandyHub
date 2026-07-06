@@ -28,7 +28,7 @@ export default function ChatInterface({ settings }) {
   const [customPersonaPrompt, setCustomPersonaPrompt] = useState('');
   // Tracks which message index is currently being spoken (not just the newest one)
   const [activeDisplayMsgIdx, setActiveDisplayMsgIdx] = useState(0);
-  const [userViewMsgIdx, setUserViewMsgIdx] = useState(null);
+
   
   const messagesEndRef = useRef(null);
   const messagesRef = useRef(messages);
@@ -43,9 +43,7 @@ export default function ChatInterface({ settings }) {
   // Records the messages[] index of the scene currently being streamed into
   const nextMsgIdxRef = useRef(0);
 
-  const lastScrollTimeRef = useRef(0);
-  const touchStartYRef = useRef(0);
-  const autoResetTimerRef = useRef(null);
+
 
   // Button pre-cache: generate climax/done responses in background so buttons are instant
   const climaxPrefetchRef = useRef({ status: 'idle', text: '', audioUrlPromise: null });
@@ -71,7 +69,6 @@ export default function ChatInterface({ settings }) {
   useEffect(() => {
     return () => { 
       if (loopTimerRef.current) clearTimeout(loopTimerRef.current); 
-      if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
     };
   }, []);
 
@@ -83,72 +80,7 @@ export default function ChatInterface({ settings }) {
     scrollToBottom();
   }, [messages]);
 
-  const resetAutoScrollTimer = () => {
-    if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
-    autoResetTimerRef.current = setTimeout(() => {
-      setUserViewMsgIdx(null);
-    }, 10000);
-  };
 
-  const shiftFocus = (direction) => {
-    const currentIdx = userViewMsgIdx !== null ? userViewMsgIdx : activeDisplayMsgIdx;
-    let nextIdx = currentIdx;
-
-    if (direction === -1) { // older
-      nextIdx = Math.max(0, currentIdx - 1);
-    } else { // newer
-      nextIdx = Math.min(activeDisplayMsgIdx, currentIdx + 1);
-    }
-
-    if (nextIdx !== currentIdx || userViewMsgIdx === null) {
-      if (nextIdx === activeDisplayMsgIdx) {
-        setUserViewMsgIdx(null);
-        if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
-      } else {
-        setUserViewMsgIdx(nextIdx);
-        resetAutoScrollTimer();
-      }
-    } else if (userViewMsgIdx !== null) {
-      resetAutoScrollTimer(); 
-    }
-  };
-
-  const handleWheel = (e) => {
-    if (messagesRef.current.length === 0) return;
-    const now = Date.now();
-    if (now - lastScrollTimeRef.current < 150) return;
-    
-    if (e.deltaY < 0) {
-      shiftFocus(-1);
-      lastScrollTimeRef.current = now;
-    } else if (e.deltaY > 0) {
-      shiftFocus(1);
-      lastScrollTimeRef.current = now;
-    }
-  };
-
-  const handleTouchStart = (e) => {
-    touchStartYRef.current = e.touches[0].clientY;
-  };
-
-  const handleTouchMove = (e) => {
-    if (messagesRef.current.length === 0) return;
-    const now = Date.now();
-    if (now - lastScrollTimeRef.current < 150) return;
-
-    const touchY = e.touches[0].clientY;
-    const deltaY = touchStartYRef.current - touchY;
-    
-    if (Math.abs(deltaY) < 30) return; 
-
-    if (deltaY < 0) {
-      shiftFocus(-1);
-    } else {
-      shiftFocus(1);
-    }
-    touchStartYRef.current = touchY;
-    lastScrollTimeRef.current = now;
-  };
 
   // Audio Queue System
   const fetchTTSAudio = async (text) => {
@@ -720,30 +652,11 @@ export default function ChatInterface({ settings }) {
       )}
 
       {/* Cinematic View */}
-      <div 
-        className="flex-1 overflow-y-hidden relative flex flex-col justify-end p-8 pb-32 bg-gray-50 dark:bg-gray-900 transition-colors"
-        onWheel={handleWheel}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-      >
-        <div className="flex flex-col space-y-6 w-full max-w-3xl mx-auto">
+      <div className="flex-1 overflow-y-auto relative flex flex-col p-8 pb-32 bg-gray-50 dark:bg-gray-900 transition-colors">
+        <div className="flex flex-col space-y-12 w-full max-w-3xl mx-auto mt-auto">
           {messages.map((msg, idx) => {
-            // Distance is relative to the SPOKEN message OR the user's scrolled view.
-            const displayTargetIdx = userViewMsgIdx !== null ? userViewMsgIdx : activeDisplayMsgIdx;
-            const dist = displayTargetIdx - idx;
-            const isFocus = dist === 0;
+            const isFocus = idx === activeDisplayMsgIdx || idx === messages.length - 1;
             const isCurrentlySpoken = idx === activeDisplayMsgIdx;
-
-            if (dist < 0) return null; // hide messages newer than the focal point
-
-            const opacity = dist === 0 ? 'opacity-100'
-                          : dist === 1 ? 'opacity-60'
-                          : dist === 2 ? 'opacity-30'
-                          : 'opacity-0 pointer-events-none';
-            const scale   = dist === 0 ? 'scale-100'
-                          : dist === 1 ? 'scale-95 -translate-y-4'
-                          : dist === 2 ? 'scale-90 -translate-y-8'
-                          : 'scale-75';
 
             // Highlight the sentence currently being spoken within the active message
             const renderText = (text) => {
@@ -766,7 +679,7 @@ export default function ChatInterface({ settings }) {
             return (
               <div
                 key={idx}
-                className={`text-center transition-all duration-700 ease-in-out transform origin-bottom ${opacity} ${scale}`}
+                className="text-center transition-all duration-700 ease-in-out"
               >
                 {isFocus && (
                   <div className="flex items-center justify-center space-x-2 mb-3 text-pink-500 dark:text-pink-400">
