@@ -195,16 +195,34 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Kokoro Voice</label>
                     <div className="flex gap-2">
                       <select name="kokoroVoice" value={localSettings.kokoroVoice || 'af_bella'} onChange={handleChange} className="flex-1 border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
-                        <option value="af_bella">American Female (af_bella)</option>
-                        <option value="af_sarah">American Female (af_sarah)</option>
-                        <option value="af_nicole">American Female (af_nicole)</option>
-                        <option value="af_sky">American Female (af_sky)</option>
-                        <option value="am_adam">American Male (am_adam)</option>
-                        <option value="am_michael">American Male (am_michael)</option>
-                        <option value="bf_emma">British Female (bf_emma)</option>
-                        <option value="bf_v0isabella">British Female (bf_isabella)</option>
-                        <option value="bm_george">British Male (bm_george)</option>
-                        <option value="bm_lewis">British Male (bm_lewis)</option>
+                        <option value="af_heart">American Female (af_heart) - A</option>
+                        <option value="af_bella">American Female (af_bella) - A-</option>
+                        <option value="af_nicole">American Female (af_nicole) - B-</option>
+                        <option value="bf_emma">British Female (bf_emma) - B-</option>
+                        <option value="af_aoede">American Female (af_aoede) - C+</option>
+                        <option value="af_kore">American Female (af_kore) - C+</option>
+                        <option value="af_sarah">American Female (af_sarah) - C+</option>
+                        <option value="am_fenrir">American Male (am_fenrir) - C+</option>
+                        <option value="am_michael">American Male (am_michael) - C+</option>
+                        <option value="am_puck">American Male (am_puck) - C+</option>
+                        <option value="af_alloy">American Female (af_alloy) - C</option>
+                        <option value="af_nova">American Female (af_nova) - C</option>
+                        <option value="bf_isabella">British Female (bf_isabella) - C</option>
+                        <option value="bm_fable">British Male (bm_fable) - C</option>
+                        <option value="bm_george">British Male (bm_george) - C</option>
+                        <option value="af_sky">American Female (af_sky) - C-</option>
+                        <option value="bm_lewis">British Male (bm_lewis) - D+</option>
+                        <option value="af_jessica">American Female (af_jessica) - D</option>
+                        <option value="af_river">American Female (af_river) - D</option>
+                        <option value="am_echo">American Male (am_echo) - D</option>
+                        <option value="am_eric">American Male (am_eric) - D</option>
+                        <option value="am_liam">American Male (am_liam) - D</option>
+                        <option value="am_onyx">American Male (am_onyx) - D</option>
+                        <option value="bf_alice">British Female (bf_alice) - D</option>
+                        <option value="bf_lily">British Female (bf_lily) - D</option>
+                        <option value="bm_daniel">British Male (bm_daniel) - D</option>
+                        <option value="am_santa">American Male (am_santa) - D-</option>
+                        <option value="am_adam">American Male (am_adam) - F+</option>
                       </select>
                       <button 
                         type="button" 
