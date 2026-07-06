@@ -644,6 +644,7 @@ export default function ChatInterface({ settings }) {
         <span className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider hidden md:block">Passive Experience</span>
         <div className="flex items-center space-x-3 sm:space-x-4 ml-auto">
           <div className="flex items-center space-x-2 border-r pr-3 sm:pr-4 border-gray-200 dark:border-gray-700">
+            <label className="text-sm font-medium text-gray-600 dark:text-gray-300 hidden sm:block">Experience:</label>
             <select
               value={selectedPersona.id}
               onChange={(e) => setSelectedPersona(PERSONAS.find(p => p.id === e.target.value))}
