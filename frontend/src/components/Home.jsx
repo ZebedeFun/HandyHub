@@ -27,7 +27,7 @@ export default function Home({ isDarkMode, toggleTheme }) {
         </p>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-8 max-w-6xl w-full">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl w-full">
         {/* Handy Time Card */}
         <button 
           onClick={() => navigate('/chat')}
@@ -70,6 +70,21 @@ export default function Home({ isDarkMode, toggleTheme }) {
           <h2 className="text-2xl font-bold mb-3">Handy Remote</h2>
           <p className="text-gray-600 dark:text-gray-400">
             A distraction-free, one-touch remote control with gestures and rhythm presets.
+          </p>
+        </button>
+
+        {/* Auto Sync Card */}
+        <button 
+          onClick={() => navigate('/autosync')}
+          className="group relative bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 border border-gray-100 dark:border-gray-700 overflow-hidden text-left"
+        >
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-amber-500 to-orange-500"></div>
+          <div className="bg-amber-100 dark:bg-amber-900/30 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 text-amber-500 dark:text-amber-400 group-hover:scale-110 transition-transform">
+            <Video size={32} />
+          </div>
+          <h2 className="text-2xl font-bold mb-3">Auto Sync</h2>
+          <p className="text-gray-600 dark:text-gray-400">
+            Real-time visual motion tracking that automatically matches device speed to the video.
           </p>
         </button>
       </div>
