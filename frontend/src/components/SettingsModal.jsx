@@ -1,4 +1,4 @@
-// Settings Configuration Component
+n // Settings Configuration Component
 import React, { useState } from 'react';
 import { Volume2, Square } from 'lucide-react';
 
@@ -154,12 +154,12 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                 <select name="ttsChunking" value={localSettings.ttsChunking || 'sentence'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
                   <option value="sentence">Per Sentence (default) — most responsive</option>
                   <option value="tagChange">Per HANDY Tag Change — balanced, fewer TTS calls</option>
-                  <option value="wholeScene">Whole Scene — smoothest Kokoro voice, least responsive</option>
+                  <option value="paragraph">Per Paragraph — smoothest Kokoro voice, good context</option>
                 </select>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                   <strong>Per Sentence:</strong> Each sentence is its own TTS call. Fastest first-word response but more API overhead.<br/>
-                  <strong>Per HANDY Tag:</strong> Group sentences between speed/stroke changes. Fewer calls, smoother voice, good device sync.<br/>
-                  <strong>Whole Scene:</strong> One TTS call per LLM response. Best voice quality (Kokoro) but device actions fire at scene start.
+                  <strong>Per HANDY Tag:</strong> Groups sentences between speed/stroke changes. Fewer calls, smoother voice, good device sync.<br/>
+                  <strong>Per Paragraph:</strong> One TTS call per paragraph. Best voice quality (Kokoro benefits from paragraph context) with only 2-3 calls per scene.
                 </p>
               </div>
               

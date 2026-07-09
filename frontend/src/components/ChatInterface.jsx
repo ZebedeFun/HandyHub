@@ -559,42 +559,47 @@ export default function ChatInterface({ settings }) {
 
   /**
    * Unlock the shared audio element by playing a silent snippet in response
-   * to a user gesture. This is essential for iOS Safari which blocks all
-   * programmatic audio without a user-gesture-initiated play().
+   * to a user gesture. Returns a Promise that resolves when the unlock is
+   * complete (audio element is stable and ready for real content).
    */
   const unlockAudio = useCallback(() => {
     const audio = audioElRef.current;
-    if (!audio || audioUnlockedRef.current) return;
+    if (!audio) return Promise.resolve();
+    if (audioUnlockedRef.current) return Promise.resolve();
 
-    // Create a tiny silent audio context to unlock the audio subsystem
-    try {
-      // Play a short silent sound through the audio element to unlock it
-      audio.volume = 0;
-      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
-      const promise = audio.play();
-      if (promise !== undefined) {
-        promise.then(() => {
+    return new Promise((resolve) => {
+      try {
+        // Play a short silent sound through the audio element to unlock it
+        audio.volume = 0;
+        audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+        const playPromise = audio.play();
+        const finish = () => {
           audio.pause();
           audio.src = '';
           audio.volume = isMutedRef.current ? 0 : volumeRef.current;
           audioUnlockedRef.current = true;
-          console.log('Audio element unlocked for iOS');
-        }).catch(() => {
-          // Even if it fails, the user gesture may still have unlocked it
-          audio.src = '';
-          audio.volume = isMutedRef.current ? 0 : volumeRef.current;
-          audioUnlockedRef.current = true;
-        });
+          console.log('Audio element unlocked');
+          resolve();
+        };
+        if (playPromise !== undefined) {
+          playPromise.then(finish).catch(finish);
+        } else {
+          finish();
+        }
+      } catch (e) {
+        // Fallback — on some browsers this still counts as gesture interaction
+        audioUnlockedRef.current = true;
+        resolve();
       }
-    } catch (e) {
-      // Fallback — on some browsers this still counts as gesture interaction
-      audioUnlockedRef.current = true;
-    }
+    });
   }, []);
 
-  const startExperience = useCallback(() => {
-      // Unlock audio subsystem during this user gesture (critical for iOS)
-      unlockAudio();
+  const startExperience = useCallback(async () => {
+      // Unlock audio subsystem during this user gesture (critical for iOS).
+      // MUST await completion before starting anything else, otherwise
+      // unlockAudio's async cleanup (pause + src='') will race with and
+      // destroy the first TTS chunk loaded onto the shared audio element.
+      await unlockAudio();
 
       // Start keep-awake silent loop (mobile only, prevents iOS auto-lock)
       if (keepAwakeAudioRef.current) {
@@ -770,9 +775,19 @@ export default function ChatInterface({ settings }) {
                               // Keep currentActions — don't reset for tagChange mode
                             }
                           }
+                        } else if (chunkingMode === 'paragraph') {
+                          // Per-paragraph: split on double-newline (paragraph) boundaries
+                          let bm;
+                          while ((bm = ttsBuffer.match(/\n\s*\n/))) {
+                            const boundaryIndex = bm.index + bm[0].length;
+                            const paragraph = ttsBuffer.substring(0, bm.index).trim();
+                            ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
+                            if (paragraph.length > 0) {
+                              pushToAudioQueue({ text: paragraph, actions: [...currentActions] });
+                              currentActions = [];
+                            }
+                          }
                         }
-                        // wholeScene mode: don't drain anything during streaming;
-                        // everything accumulates in ttsBuffer and gets pushed at stream end.
 
                         setMessages(prev => {
                             const updated = [...prev];
@@ -798,8 +813,8 @@ export default function ChatInterface({ settings }) {
         }
 
         if (isActiveRef.current && ttsBuffer.trim().length > 0) {
-            if (chunkingMode === 'wholeScene') {
-              // Push the entire accumulated text as one TTS call, with all actions
+            if (chunkingMode === 'paragraph') {
+              // Push the remaining paragraph as the last TTS call, with all actions
               pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
             } else if (chunkingMode === 'tagChange') {
               // Push any remaining text with the last set of actions
