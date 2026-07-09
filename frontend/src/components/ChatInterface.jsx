@@ -29,6 +29,14 @@ export default function ChatInterface({ settings }) {
   const [finishState, setFinishState] = useState('idle');
   const [activeSentence, setActiveSentence] = useState('');
   const [customPersonaPrompt, setCustomPersonaPrompt] = useState('');
+  const [customPersonaDescription, setCustomPersonaDescription] = useState('');
+  const [customPersonaName, setCustomPersonaName] = useState('');
+  const [isGeneratingPersona, setIsGeneratingPersona] = useState(false);
+  const [customSavedPersonas, setCustomSavedPersonas] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('handyTimeCustomPersonas')) || [];
+    } catch(e) { return []; }
+  });
   // Tracks which message index is currently being spoken (not just the newest one)
   const [activeDisplayMsgIdx, setActiveDisplayMsgIdx] = useState(0);
 
@@ -145,6 +153,73 @@ export default function ChatInterface({ settings }) {
       URL.revokeObjectURL(url);
       activeBlobUrlsRef.current.delete(url);
     }
+  };
+
+  const generateCustomPersona = async () => {
+    setIsGeneratingPersona(true);
+    try {
+       const systemPrompt = "You are a prompt engineer for an adult interactive fiction AI. The user will describe a persona for a tactile VR experience. Your job is to output ONLY the persona instructions (in second person, e.g., 'You are...'). Incorporate their pacing and attitude. You MUST include instructions on how the AI should use [HANDY_SPEED: 0-100] and [HANDY_STROKE: 0-100] tags. Output ONLY the raw prompt text, no intro, no outro, no markdown blocks.";
+       
+       const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messages: [{ role: 'user', content: customPersonaDescription }],
+            apiKey: settingsRef.current.llmApiKey,
+            llmUrl: settingsRef.current.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
+            llmModel: settingsRef.current.llmModel || 'mistralai/mistral-7b-instruct:free',
+            llmTemperature: 0.7,
+            systemPrompt: systemPrompt
+          }),
+        });
+
+        if (!res.body) throw new Error('No response body');
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let out = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          for (const line of decoder.decode(value, { stream: true }).split('\n')) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (payload === '[DONE]') { reader.cancel(); break; }
+            try { out += JSON.parse(payload).choices[0]?.delta?.content || ''; } catch (_) {}
+          }
+        }
+        setCustomPersonaPrompt(out.trim());
+        if (!customPersonaName) {
+           setCustomPersonaName(customPersonaDescription.split(' ').slice(0, 3).join(' ') + '...');
+        }
+    } catch (err) {
+       console.error("Generate error", err);
+    } finally {
+       setIsGeneratingPersona(false);
+    }
+  };
+
+  const saveCustomPersona = () => {
+     if (!customPersonaPrompt || !customPersonaName) return;
+     const newPersona = {
+       id: 'custom_' + Date.now(),
+       name: customPersonaName,
+       prompt: customPersonaPrompt
+     };
+     const updated = [...customSavedPersonas, newPersona];
+     setCustomSavedPersonas(updated);
+     localStorage.setItem('handyTimeCustomPersonas', JSON.stringify(updated));
+     setSelectedPersona(newPersona);
+     setCustomPersonaName('');
+     setCustomPersonaPrompt('');
+     setCustomPersonaDescription('');
+  };
+
+  const deleteCustomPersona = (id) => {
+     const updated = customSavedPersonas.filter(p => p.id !== id);
+     setCustomSavedPersonas(updated);
+     localStorage.setItem('handyTimeCustomPersonas', JSON.stringify(updated));
+     setSelectedPersona(PERSONAS[0]);
   };
 
   // Audio Queue System — with concurrency limiter for TTS requests
@@ -877,14 +952,34 @@ export default function ChatInterface({ settings }) {
             <label className="text-sm font-medium text-gray-600 dark:text-gray-300 hidden sm:block">Experience:</label>
             <select
               value={selectedPersona.id}
-              onChange={(e) => setSelectedPersona(PERSONAS.find(p => p.id === e.target.value))}
+              onChange={(e) => {
+                 const p = PERSONAS.find(p => p.id === e.target.value) || customSavedPersonas.find(p => p.id === e.target.value);
+                 if (p) setSelectedPersona(p);
+              }}
               disabled={isActive}
               className="bg-gray-100 dark:bg-gray-700 border-none text-sm rounded-lg px-2 py-1 text-gray-700 dark:text-gray-300 outline-none disabled:opacity-50"
             >
-              {PERSONAS.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
+              <optgroup label="Standard">
+                {PERSONAS.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </optgroup>
+              {customSavedPersonas.length > 0 && (
+                <optgroup label="Saved Custom">
+                  {customSavedPersonas.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </optgroup>
+              )}
             </select>
+            {selectedPersona.id.startsWith('custom_') && !isActive && (
+              <button 
+                onClick={() => deleteCustomPersona(selectedPersona.id)}
+                className="text-xs text-red-500 hover:text-red-600 transition-colors ml-2 font-medium"
+              >
+                Delete
+              </button>
+            )}
           </div>
           <div className="flex items-center space-x-1 sm:space-x-2">
             <button 
@@ -917,19 +1012,56 @@ export default function ChatInterface({ settings }) {
       </div>
 
       {selectedPersona.id === 'custom' && (
-        <div className="bg-gray-100 dark:bg-gray-800/50 border-b dark:border-gray-700 px-4 py-3 flex flex-col space-y-2 z-0">
-          <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Custom Experience Prompt</label>
-          <textarea
-            value={customPersonaPrompt}
-            onChange={(e) => setCustomPersonaPrompt(e.target.value)}
-            disabled={isActive}
-            className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg p-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-50 transition-colors"
-            rows="3"
-            placeholder="e.g., You are a romantic partner. Keep the pace slow and sensual by using [HANDY_SPEED: 20-40] and [HANDY_STROKE: 50-80]..."
-          />
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Define the AI's mood and suggest speed (0-100) and stroke (0-100) ranges using the tags [HANDY_SPEED: X] and [HANDY_STROKE: X].
-          </p>
+        <div className="bg-gray-100 dark:bg-gray-800/50 border-b dark:border-gray-700 px-4 py-4 flex flex-col space-y-4 z-0">
+          <div className="flex flex-col space-y-2">
+            <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">AI Persona Generator</label>
+            <div className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2">
+              <input
+                 type="text"
+                 value={customPersonaDescription}
+                 onChange={(e) => setCustomPersonaDescription(e.target.value)}
+                 disabled={isActive || isGeneratingPersona}
+                 className="flex-1 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg p-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-50 transition-colors"
+                 placeholder="Describe the persona (e.g., 'a strict teacher who punishes fast')"
+              />
+              <button 
+                 onClick={generateCustomPersona}
+                 disabled={isActive || isGeneratingPersona || !customPersonaDescription.trim()}
+                 className="bg-pink-500 hover:bg-pink-600 disabled:bg-pink-300 dark:disabled:bg-pink-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap"
+              >
+                {isGeneratingPersona ? 'Generating...' : 'Generate with AI'}
+              </button>
+            </div>
+          </div>
+          
+          <div className="flex flex-col space-y-2">
+            <label className="text-sm font-semibold text-gray-700 dark:text-gray-300">Generated Prompt</label>
+            <textarea
+              value={customPersonaPrompt}
+              onChange={(e) => setCustomPersonaPrompt(e.target.value)}
+              disabled={isActive}
+              className="w-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg p-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-50 transition-colors"
+              rows="3"
+            />
+          </div>
+          
+          <div className="flex flex-col sm:flex-row justify-end items-end sm:items-center space-y-2 sm:space-y-0 sm:space-x-2">
+             <input 
+                type="text" 
+                placeholder="Persona Name (to save)" 
+                value={customPersonaName} 
+                onChange={e => setCustomPersonaName(e.target.value)} 
+                disabled={isActive}
+                className="w-full sm:w-auto bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg p-2 text-sm text-gray-800 dark:text-gray-200 outline-none focus:ring-2 focus:ring-pink-500 transition-colors" 
+             />
+             <button 
+                onClick={saveCustomPersona} 
+                disabled={isActive || !customPersonaPrompt.trim() || !customPersonaName.trim()}
+                className="w-full sm:w-auto bg-green-500 hover:bg-green-600 disabled:bg-green-300 dark:disabled:bg-green-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap"
+             >
+                Save Persona
+             </button>
+          </div>
         </div>
       )}
 
