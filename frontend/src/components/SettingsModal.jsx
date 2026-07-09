@@ -1,4 +1,4 @@
-n // Settings Configuration Component
+// Settings Configuration Component
 import React, { useState } from 'react';
 import { Volume2, Square } from 'lucide-react';
 
