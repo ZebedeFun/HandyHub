@@ -99,6 +99,73 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
+// Voice Intent Endpoint
+app.post('/api/voice-intent', async (req, res) => {
+    const { transcript, apiKey, llmUrl, llmVoiceModel, currentSpeed, currentStroke } = req.body;
+    
+    if (!llmUrl) {
+        return res.status(400).json({ error: 'LLM URL is required' });
+    }
+
+    const systemPrompt = `You are an AI controlling a haptic device. 
+Current State: Speed ${currentSpeed}%, Stroke ${currentStroke}%.
+The user will say a command. You must respond ONLY with a valid JSON object, nothing else.
+Allowed keys in JSON:
+- "action": string (one of: "adjust", "preset", "stop", "climax", "aftercare", "none")
+- "speed": number (0-100), only if action is "adjust"
+- "stroke": number (0-100), only if action is "adjust"
+- "presetName": string (one of: "tease", "blow", "slow_deep", "pounding", "vibrate", "edging", "mix", "random", "organic"), only if action is "preset"
+
+Example User: "go a bit faster and deeper"
+Example Output: {"action":"adjust", "speed": ${Math.min(100, currentSpeed + 20)}, "stroke": ${Math.min(100, currentStroke + 20)}}`;
+
+    try {
+        const headers = {
+            'Content-Type': 'application/json',
+            'HTTP-Referer': 'https://handytime.local',
+            'X-Title': 'HandyTime Voice'
+        };
+        if (apiKey) {
+            headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+
+        const response = await fetch(llmUrl, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({
+                model: llmVoiceModel || 'mistralai/mistral-7b-instruct:free',
+                temperature: 0.1,
+                messages: [
+                    { role: 'system', content: systemPrompt },
+                    { role: 'user', content: transcript }
+                ],
+                stream: false,
+            })
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            return res.status(response.status).json({ error: errText });
+        }
+
+        const data = await response.json();
+        const content = data.choices[0].message.content;
+        
+        try {
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : content);
+            res.json(parsed);
+        } catch (e) {
+            console.error("Failed to parse JSON from LLM:", content);
+            res.status(500).json({ error: 'LLM did not return valid JSON' });
+        }
+
+    } catch (error) {
+        console.error('Voice Intent API Error:', error);
+        res.status(500).json({ error: 'Failed to communicate with LLM API' });
+    }
+});
+
 // STT Endpoint
 app.post('/api/stt', upload.single('audio'), async (req, res) => {
     try {

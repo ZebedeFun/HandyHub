@@ -172,69 +172,89 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     };
   }, [isAudioReactActive]);
 
-  const handleVoiceCommand = (transcript) => {
-    console.log(`[Voice Command] Heard: "${transcript}" -> Looking for keyword...`);
-    if (transcript.includes('stop') || transcript.includes('pause')) {
-      console.log(`[Voice Command] Matched "stop/pause". Rationale: User requested stop. Stopping device.`);
-      stopRhythm();
-      sendToDeviceRef.current(0, padPosRef.current.stroke);
-    } else if (transcript.includes('faster')) {
-      console.log(`[Voice Command] Matched "faster". Increasing current speed by 20%.`);
-      stopRhythm();
-      const newSpeed = Math.min(100, padPosRef.current.speed + 20);
-      sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
-    } else if (transcript.includes('slower')) {
-      console.log(`[Voice Command] Matched "slower". Decreasing current speed by 20%.`);
-      stopRhythm();
-      const newSpeed = Math.max(0, padPosRef.current.speed - 20);
-      sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
-    } else if (transcript.includes('deeper')) {
-      console.log(`[Voice Command] Matched "deeper". Increasing current stroke by 20%.`);
-      stopRhythm();
-      const newStroke = Math.min(100, padPosRef.current.stroke + 20);
-      sendToDeviceRef.current(padPosRef.current.speed, newStroke);
-    } else if (transcript.includes('shallower') || transcript.includes('shorter')) {
-      console.log(`[Voice Command] Matched "shallower". Decreasing current stroke by 20%.`);
-      stopRhythm();
-      const newStroke = Math.max(0, padPosRef.current.stroke - 20);
-      sendToDeviceRef.current(padPosRef.current.speed, newStroke);
-    } else if (transcript.includes('climax')) {
-      console.log(`[Voice Command] Matched "climax". Triggering max speed and stroke.`);
-      stopRhythm();
-      sendToDeviceRef.current(80, 100);
-      setClimaxState('climaxing');
-    } else if (transcript.includes('done') || transcript.includes('finished')) {
-      console.log(`[Voice Command] Matched "done/finished". Triggering slow and shallow aftercare.`);
-      stopRhythm();
-      sendToDeviceRef.current(20, 40);
-      setClimaxState('idle');
-    } else if (transcript.includes('tease')) {
-      console.log(`[Voice Command] Matched "tease". Triggering Tease preset.`);
-      presetTease();
-    } else if (transcript.includes('blow')) {
-      console.log(`[Voice Command] Matched "blow". Triggering Blow preset.`);
-      presetBlow();
-    } else if (transcript.includes('deep') || transcript.includes('slow')) {
-      console.log(`[Voice Command] Matched "deep/slow". Triggering Slow Deep preset.`);
-      presetSlowDeep();
-    } else if (transcript.includes('pound') || transcript.includes('hard')) {
-      console.log(`[Voice Command] Matched "pound/hard". Triggering Pounding preset.`);
-      presetPounding();
-    } else if (transcript.includes('flutter') || transcript.includes('vibrate')) {
-      console.log(`[Voice Command] Matched "flutter/vibrate". Triggering Vibrate preset.`);
-      presetVibrate();
-    } else if (transcript.includes('edge') || transcript.includes('edging')) {
-      console.log(`[Voice Command] Matched "edge/edging". Triggering Edging preset.`);
-      presetEdging();
-    } else if (transcript.includes('mix')) {
-      console.log(`[Voice Command] Matched "mix". Triggering Mix preset.`);
-      presetMix();
-    } else if (transcript.includes('random')) {
-      console.log(`[Voice Command] Matched "random". Triggering Random preset.`);
-      presetRandom();
-    } else if (transcript.includes('organic') || transcript.includes('magic')) {
-      console.log(`[Voice Command] Matched "organic/magic". Triggering Organic preset.`);
-      presetOrganic();
+  const handleVoiceCommand = async (transcript) => {
+    console.log(`[Voice Command] Heard: "${transcript}"`);
+    
+    if (!settings.llmUrl) {
+      console.log("[Voice Command] LLM not configured, using fallback keywords.");
+      if (transcript.includes('stop') || transcript.includes('pause')) {
+        stopRhythm();
+        sendToDeviceRef.current(0, padPosRef.current.stroke);
+      } else if (transcript.includes('faster')) {
+        stopRhythm();
+        const newSpeed = Math.min(100, padPosRef.current.speed + 20);
+        sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
+      } else if (transcript.includes('slower')) {
+        stopRhythm();
+        const newSpeed = Math.max(0, padPosRef.current.speed - 20);
+        sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
+      } else if (transcript.includes('deeper')) {
+        stopRhythm();
+        const newStroke = Math.min(100, padPosRef.current.stroke + 20);
+        sendToDeviceRef.current(padPosRef.current.speed, newStroke);
+      } else if (transcript.includes('shallower') || transcript.includes('shorter')) {
+        stopRhythm();
+        const newStroke = Math.max(0, padPosRef.current.stroke - 20);
+        sendToDeviceRef.current(padPosRef.current.speed, newStroke);
+      } else if (transcript.includes('climax')) {
+        stopRhythm();
+        sendToDeviceRef.current(80, 100);
+        setClimaxState('climaxing');
+      }
+      return;
+    }
+
+    try {
+      console.log(`[Voice Command] Sending to LLM for intent parsing...`);
+      const response = await fetch('/api/voice-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transcript,
+          apiKey: settings.llmApiKey,
+          llmUrl: settings.llmUrl,
+          llmVoiceModel: settings.llmVoiceModel,
+          currentSpeed: padPosRef.current.speed,
+          currentStroke: padPosRef.current.stroke
+        })
+      });
+
+      if (!response.ok) throw new Error('Voice API failed');
+      const intent = await response.json();
+      console.log(`[Voice Command] LLM Intent Result:`, intent);
+
+      if (intent.action === 'adjust') {
+        stopRhythm();
+        sendToDeviceRef.current(intent.speed ?? padPosRef.current.speed, intent.stroke ?? padPosRef.current.stroke);
+      } else if (intent.action === 'stop') {
+        stopRhythm();
+        sendToDeviceRef.current(0, padPosRef.current.stroke);
+      } else if (intent.action === 'climax') {
+        stopRhythm();
+        sendToDeviceRef.current(80, 100);
+        setClimaxState('climaxing');
+      } else if (intent.action === 'aftercare') {
+        stopRhythm();
+        sendToDeviceRef.current(20, 40);
+        setClimaxState('idle');
+      } else if (intent.action === 'preset' && intent.presetName) {
+        const presets = {
+          'tease': presetTease,
+          'blow': presetBlow,
+          'slow_deep': presetSlowDeep,
+          'pounding': presetPounding,
+          'vibrate': presetVibrate,
+          'edging': presetEdging,
+          'mix': presetMix,
+          'random': presetRandom,
+          'organic': presetOrganic
+        };
+        if (presets[intent.presetName]) {
+          presets[intent.presetName]();
+        }
+      }
+    } catch (error) {
+      console.error("[Voice Command] Failed to process intent:", error);
     }
   };
 
