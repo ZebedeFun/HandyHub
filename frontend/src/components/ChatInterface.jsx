@@ -391,15 +391,16 @@ export default function ChatInterface({ settings }) {
     climaxPrefetchRef.current = { status: 'fetching', text: '', audioUrlPromise: null };
     donePrefetchRef.current   = { status: 'fetching', text: '', audioUrlPromise: null };
 
-    // Fix consecutive assistant roles bug: Some APIs/models break if multiple assistant messages are sent in a row.
-    // We combine recent history into a single assistant message to ensure strict user->assistant->user alternation.
+    // Fix consecutive assistant roles bug without causing runaway length:
+    // Interleave dummy user prompts between each assistant message so the LLM sees short, individual turns.
     const recentMessages = messagesRef.current.slice(-10); // Last 10 for prefetch context
     let recentCtx = [];
     if (recentMessages.length > 0) {
-        recentCtx = [
-            { role: 'user', content: '(Please start the scene and begin playing with me)' },
-            { role: 'assistant', content: recentMessages.map(m => m.text).join('\n\n') }
-        ];
+        recentMessages.forEach((msg, i) => {
+           const pText = i === 0 ? '(Please start the scene and begin playing with me)' : '(Please continue the scene, moving the situation slowly forward)';
+           recentCtx.push({ role: 'user', content: pText });
+           recentCtx.push({ role: 'assistant', content: msg.text });
+        });
     }
 
     const currentPersona = selectedPersonaRef.current;
@@ -730,15 +731,16 @@ export default function ChatInterface({ settings }) {
     if (isFirst || messagesRef.current.length === 0) {
         apiMessages = [userMessage];
     } else {
-        // Fix consecutive assistant roles bug: Open-weights models (Llama, Mistral) hallucinate 
-        // if they receive multiple 'assistant' messages in a row without 'user' messages in between.
-        // We combine the history (up to last 30 messages to save context) into a single assistant block.
+        // Fix consecutive assistant roles bug WITHOUT causing runaway length:
+        // Interleave dummy user prompts between each assistant message so the LLM sees short, individual turns.
         const historyMessages = messagesRef.current.slice(-30);
-        apiMessages = [
-            { role: 'user', content: '(Please start the scene and begin playing with me)' },
-            { role: 'assistant', content: historyMessages.map(m => m.text).join('\n\n') },
-            userMessage
-        ];
+        apiMessages = [];
+        historyMessages.forEach((msg, i) => {
+           const pText = i === 0 ? '(Please start the scene and begin playing with me)' : '(Please continue the scene, moving the situation slowly forward)';
+           apiMessages.push({ role: 'user', content: pText });
+           apiMessages.push({ role: 'assistant', content: msg.text });
+        });
+        apiMessages.push(userMessage);
     }
 
     // Record the index this new message will occupy BEFORE appending it

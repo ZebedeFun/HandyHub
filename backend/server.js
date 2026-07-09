@@ -68,6 +68,8 @@ app.post('/api/chat', async (req, res) => {
             body: JSON.stringify({
                 model: llmModel || 'mistralai/mistral-7b-instruct:free',
                 temperature: llmTemperature !== undefined ? llmTemperature : 0.7,
+                frequency_penalty: 0,
+                presence_penalty: 0,
                 messages: [
                     { role: 'system', content: systemPrompt },
                     ...messages
