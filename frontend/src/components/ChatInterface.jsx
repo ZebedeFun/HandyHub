@@ -728,6 +728,15 @@ export default function ChatInterface({ settings }) {
                                 if (match) {
                                     const type = match[1];
                                     const val = parseInt(match[2], 10);
+
+                                    // In tagChange mode, flush accumulated text with OLD actions
+                                    // before the tag change takes effect
+                                    const cmode = settingsRef.current.ttsChunking || 'sentence';
+                                    if (cmode === 'tagChange' && currentActions.length > 0 && ttsBuffer.trim().length > 0) {
+                                        pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
+                                        ttsBuffer = '';
+                                    }
+
                                     currentActions.push({ type, val });
                                     
                                     streamBuffer = streamBuffer.substring(closeBracketIndex + 1);
@@ -776,9 +785,10 @@ export default function ChatInterface({ settings }) {
                             }
                           }
                         } else if (chunkingMode === 'paragraph') {
-                          // Per-paragraph: split on double-newline (paragraph) boundaries
+                          // Per-paragraph: split on newline boundaries.
+                          // LLMs typically separate paragraphs with one or more newlines.
                           let bm;
-                          while ((bm = ttsBuffer.match(/\n\s*\n/))) {
+                          while ((bm = ttsBuffer.match(/\n/))) {
                             const boundaryIndex = bm.index + bm[0].length;
                             const paragraph = ttsBuffer.substring(0, bm.index).trim();
                             ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
