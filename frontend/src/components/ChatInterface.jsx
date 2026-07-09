@@ -1,5 +1,5 @@
 // Chat UI Component
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Play, Square, Bot, Sliders, Zap, Volume2, VolumeX, AlertOctagon, Flame, CheckCircle } from 'lucide-react';
 import { setSpeed, setStrokeZone, stopHamp } from '../services/handyService';
 import RemoteSimulator from './remote/RemoteSimulator';
@@ -13,6 +13,9 @@ const PERSONAS = [
   { id: 'humiliation', name: 'Humiliation', prompt: 'You are a cruel and mocking figure who thrives on humiliating the user. You insult their stamina, desperation, and inadequacy. Use unpredictable bursts of speed [HANDY_SPEED: 0-100] and shallow teasing strokes [HANDY_STROKE: 10-30] to frustrate them.' },
   { id: 'custom', name: 'Custom...', prompt: '' }
 ];
+
+// Maximum number of in-flight TTS requests to avoid overwhelming Kokoro
+const MAX_CONCURRENT_TTS = 3;
 
 export default function ChatInterface({ settings }) {
   const [messages, setMessages] = useState([]);
@@ -33,7 +36,6 @@ export default function ChatInterface({ settings }) {
   const messagesEndRef = useRef(null);
   const messagesRef = useRef(messages);
   const isStreamingRef = useRef(false);
-  const currentAudioRef = useRef(null);
   const settingsRef = useRef(settings);
   const isActiveRef = useRef(isActive);
   const loopTimerRef = useRef(null);
@@ -42,6 +44,15 @@ export default function ChatInterface({ settings }) {
   const isProcessingQueueRef = useRef(false);
   // Records the messages[] index of the scene currently being streamed into
   const nextMsgIdxRef = useRef(0);
+
+  // --- Single shared Audio element (critical for iOS autoplay policy) ---
+  const audioElRef = useRef(null);
+  // Tracks whether the shared audio element has been unlocked by a user gesture
+  const audioUnlockedRef = useRef(false);
+
+  // --- TTS concurrency limiter ---
+  const ttsInFlightRef = useRef(0);
+  const ttsWaitQueueRef = useRef([]);
 
 
 
@@ -60,15 +71,28 @@ export default function ChatInterface({ settings }) {
   useEffect(() => { volumeRef.current = volume; }, [volume]);
   useEffect(() => { isMutedRef.current = isMuted; }, [isMuted]);
 
+  // Keep shared audio element volume in sync
   useEffect(() => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.volume = isMuted ? 0 : volume;
+    if (audioElRef.current) {
+      audioElRef.current.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted]);
 
   useEffect(() => {
+    // Create the shared audio element once on mount
+    const audio = new Audio();
+    audio.preload = 'auto';
+    audioElRef.current = audio;
+
     return () => { 
-      if (loopTimerRef.current) clearTimeout(loopTimerRef.current); 
+      if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
+      // Revoke any lingering blob URL
+      if (audio.src && audio.src.startsWith('blob:')) {
+        URL.revokeObjectURL(audio.src);
+      }
+      audio.pause();
+      audio.src = '';
+      audio.load();
     };
   }, []);
 
@@ -81,12 +105,28 @@ export default function ChatInterface({ settings }) {
   }, [messages]);
 
 
+  // --- Blob URL tracker for cleanup ---
+  const activeBlobUrlsRef = useRef(new Set());
 
-  // Audio Queue System
+  const revokeBlobUrl = (url) => {
+    if (!url || !url.startsWith('blob:')) return;
+    if (activeBlobUrlsRef.current.has(url)) {
+      URL.revokeObjectURL(url);
+      activeBlobUrlsRef.current.delete(url);
+    }
+  };
+
+  // Audio Queue System — with concurrency limiter for TTS requests
   const fetchTTSAudio = async (text) => {
     const s = settingsRef.current;
     if (s.ttsProvider !== 'Kokoro' && !s.googleApiKey) return null;
     
+    // Wait for a TTS slot to avoid overwhelming the TTS engine
+    while (ttsInFlightRef.current >= MAX_CONCURRENT_TTS) {
+      await new Promise(resolve => { ttsWaitQueueRef.current.push(resolve); });
+    }
+    ttsInFlightRef.current += 1;
+
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -102,14 +142,21 @@ export default function ChatInterface({ settings }) {
         })
       });
       if (!res.ok) throw new Error('TTS fetch failed');
-      return URL.createObjectURL(await res.blob());
+      const blobUrl = URL.createObjectURL(await res.blob());
+      activeBlobUrlsRef.current.add(blobUrl);
+      return blobUrl;
     } catch (err) {
       console.error('TTS Fetch Error:', err);
       return null;
+    } finally {
+      ttsInFlightRef.current -= 1;
+      // Release the next waiter
+      const next = ttsWaitQueueRef.current.shift();
+      if (next) next();
     }
   };
 
-  const emergencyStop = () => {
+  const emergencyStop = useCallback(() => {
     setIsActive(false);
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
 
@@ -121,12 +168,17 @@ export default function ChatInterface({ settings }) {
     setIsPlayingQueue(false);
     setActiveSentence('');
 
-    // 3. Stop current audio if playing
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
+    // 3. Stop shared audio element
+    if (audioElRef.current) {
+      audioElRef.current.pause();
+      if (audioElRef.current.src && audioElRef.current.src.startsWith('blob:')) {
+        revokeBlobUrl(audioElRef.current.src);
+      }
+      audioElRef.current.src = '';
+      audioElRef.current.removeAttribute('src');
     }
 
-    // 4. Send stop command to device — must call hamp/stop, not just velocity=0
+    // 4. Send stop command to device
     const s = settingsRef.current;
     if (s && s.handyKey) {
       stopHamp(s.handyKey);
@@ -138,9 +190,15 @@ export default function ChatInterface({ settings }) {
     donePrefetchRef.current   = { status: 'idle', text: '', audioUrlPromise: null };
     isPrefetchingRef.current  = false;
     sceneCountRef.current     = 0;
-  };
 
-  const handleFinishClick = () => {
+    // Clean up all tracked blob URLs
+    for (const url of activeBlobUrlsRef.current) {
+      URL.revokeObjectURL(url);
+    }
+    activeBlobUrlsRef.current.clear();
+  }, []);
+
+  const handleFinishClick = useCallback(() => {
     const s = settingsRef.current;
 
     // Stop current audio and clear queue
@@ -148,8 +206,11 @@ export default function ChatInterface({ settings }) {
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
     setActiveSentence('');
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause();
+    if (audioElRef.current) {
+      audioElRef.current.pause();
+      if (audioElRef.current.src && audioElRef.current.src.startsWith('blob:')) {
+        revokeBlobUrl(audioElRef.current.src);
+      }
     }
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
     isStreamingRef.current = false;
@@ -205,13 +266,13 @@ export default function ChatInterface({ settings }) {
         generateNextScene(false, '(The user has just finished. Talk to them about it, praise them, and offer post-orgasm care or teasing depending on your persona.)');
       }
     }
-  };
+  }, [finishState, fetchTTSAudio, revokeBlobUrl]);
 
   // ------------------------------------------------------------------
   // Button pre-cache: fire two parallel LLM + TTS calls in the background
   // so Climax / Done buttons play instantly when clicked.
   // ------------------------------------------------------------------
-  const prefetchButtonContent = async () => {
+  const prefetchButtonContent = useCallback(async () => {
     if (isPrefetchingRef.current || !isActiveRef.current) return;
     const s = settingsRef.current;
 
@@ -290,16 +351,114 @@ export default function ChatInterface({ settings }) {
     };
 
     isPrefetchingRef.current = false;
-  };
+  }, [selectedPersona, customPersonaPrompt, fetchTTSAudio]);
 
-  const pushToAudioQueue = (item) => {
+  const pushToAudioQueue = useCallback((item) => {
     const audioUrlPromise = fetchTTSAudio(item.text);
     // Stamp the message index so processAudioQueue knows which message this sentence belongs to
     audioQueueRef.current.push({ ...item, audioUrlPromise, msgIdx: nextMsgIdxRef.current });
     processAudioQueue();
-  };
+  }, [fetchTTSAudio]);
 
-  const processAudioQueue = async () => {
+  /**
+   * Play a single audio item using the SHARED audio element.
+   * Returns a promise that resolves when playback is complete.
+   * Handles iOS autoplay policy by reusing the same <audio> element that was
+   * initially unlocked by the user gesture (START button tap).
+   */
+  const playAudioOnSharedElement = useCallback((audioUrl) => {
+    return new Promise((resolve) => {
+      const audio = audioElRef.current;
+      if (!audio) { resolve(); return; }
+
+      let resolved = false;
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        setActiveSentence('');
+        // Clean up the blob URL for this audio
+        revokeBlobUrl(audioUrl);
+        // Prevent memory leaks from old src
+        if (audio.src && audio.src.startsWith('blob:') && audio.src !== audioUrl) {
+          revokeBlobUrl(audio.src);
+        }
+        resolve();
+      };
+
+      // Clean up previous listeners
+      audio.onended = null;
+      audio.onerror = null;
+      audio.onpause = null;
+      audio.oncanplaythrough = null;
+
+      // Only advance on natural end
+      audio.onended = done;
+
+      // On error, retry once with a short delay, then skip
+      audio.onerror = () => {
+        console.warn('Audio error on shared element, retrying once...');
+        // Retry once
+        audio.onerror = () => {
+          console.error('Audio error on retry, skipping.');
+          done();
+        };
+        // Reload and attempt replay
+        setTimeout(() => {
+          audio.load();
+          audio.play().catch(() => done());
+        }, 300);
+      };
+
+      // Set volume before playing
+      audio.volume = isMutedRef.current ? 0 : volumeRef.current;
+
+      // Set new source
+      audio.src = audioUrl;
+      audio.load();
+
+      // Wait for enough data before attempting play (critical for smooth iOS playback)
+      const attemptPlay = () => {
+        audio.play().then(() => {
+          // Playback started successfully
+        }).catch((err) => {
+          console.warn('Audio play() rejected:', err.name);
+          // On iOS, if the element hasn't been unlocked yet, try a silent play to unlock
+          if (err.name === 'NotAllowedError') {
+            // The element should have been unlocked by the START button tap.
+            // If it still fails, wait briefly and retry once.
+            setTimeout(() => {
+              audio.play().catch((err2) => {
+                console.error('Audio play() failed after retry:', err2.name);
+                done(); // Give up and move to next
+              });
+            }, 500);
+          } else {
+            // Other error (network, decode) — skip
+            done();
+          }
+        });
+      };
+
+      // Use canplaythrough for smoother start; fallback to immediate play after timeout
+      let readyFired = false;
+      audio.oncanplaythrough = () => {
+        if (readyFired) return;
+        readyFired = true;
+        attemptPlay();
+      };
+
+      // Safety timeout: if canplaythrough never fires, try playing anyway
+      setTimeout(() => {
+        if (!readyFired && !resolved) {
+          readyFired = true;
+          audio.oncanplaythrough = null;
+          attemptPlay();
+        }
+      }, 3000);
+    });
+  }, [revokeBlobUrl]);
+
+  const processAudioQueue = useCallback(async () => {
     if (isProcessingQueueRef.current) return;
     isProcessingQueueRef.current = true;
     setIsPlayingQueue(true);
@@ -324,14 +483,16 @@ export default function ChatInterface({ settings }) {
         }
       };
 
-      // Kick off next LLM generation early so it's buffered before queue drains
+      // Kick off next LLM generation early so it's buffered before queue drains.
+      // Guard against double-triggering: only call generateNextScene from here,
+      // never from the stream-completion path, to avoid race conditions.
       if (isActiveRef.current && !isStreamingRef.current && audioQueueRef.current.length < 5) {
         generateNextScene();
       }
 
       const audioUrl = item.audioUrlPromise ? await item.audioUrlPromise : null;
 
-      // Short breathing pause between scenes (replaces the old user-configured 2.5s gap)
+      // Short breathing pause between scenes
       if (item.isSceneDelay) {
         await new Promise(r => setTimeout(r, item.delayMs));
         continue;
@@ -348,42 +509,63 @@ export default function ChatInterface({ settings }) {
         continue;
       }
 
-      await new Promise((resolve) => {
-        const audio = new Audio(audioUrl);
-        audio.volume = isMutedRef.current ? 0 : volumeRef.current;
-        currentAudioRef.current = audio;
+      // Execute device actions right before audio starts
+      executeActions();
+      if (item.msgIdx !== undefined) setActiveDisplayMsgIdx(item.msgIdx);
+      setActiveSentence(item.text || '');
 
-        audio.onplay = () => {
-          executeActions();
-          // Advance the visible message only when audio actually starts — not when appended
-          if (item.msgIdx !== undefined) setActiveDisplayMsgIdx(item.msgIdx);
-          setActiveSentence(item.text || '');
-        };
-        const done = () => { setActiveSentence(''); resolve(); };
-        audio.onended = done;
-        audio.onerror = done;
-        audio.onpause = done;
-
-        audio.play().catch((err) => {
-          console.error('Audio playback error:', err);
-          executeActions();
-          setActiveSentence('');
-          setTimeout(resolve, 1000);
-        });
-      });
-
-      currentAudioRef.current = null;
+      // Play using the shared audio element (iOS-safe)
+      await playAudioOnSharedElement(audioUrl);
     }
 
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
 
+    // Only trigger next scene if queue is completely drained AND we're not currently streaming
     if (isActiveRef.current && !isStreamingRef.current) {
       generateNextScene();
     }
-  };
+  }, [playAudioOnSharedElement]);
 
-  const startExperience = () => {
+  /**
+   * Unlock the shared audio element by playing a silent snippet in response
+   * to a user gesture. This is essential for iOS Safari which blocks all
+   * programmatic audio without a user-gesture-initiated play().
+   */
+  const unlockAudio = useCallback(() => {
+    const audio = audioElRef.current;
+    if (!audio || audioUnlockedRef.current) return;
+
+    // Create a tiny silent audio context to unlock the audio subsystem
+    try {
+      // Play a short silent sound through the audio element to unlock it
+      audio.volume = 0;
+      audio.src = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+      const promise = audio.play();
+      if (promise !== undefined) {
+        promise.then(() => {
+          audio.pause();
+          audio.src = '';
+          audio.volume = isMutedRef.current ? 0 : volumeRef.current;
+          audioUnlockedRef.current = true;
+          console.log('Audio element unlocked for iOS');
+        }).catch(() => {
+          // Even if it fails, the user gesture may still have unlocked it
+          audio.src = '';
+          audio.volume = isMutedRef.current ? 0 : volumeRef.current;
+          audioUnlockedRef.current = true;
+        });
+      }
+    } catch (e) {
+      // Fallback — on some browsers this still counts as gesture interaction
+      audioUnlockedRef.current = true;
+    }
+  }, []);
+
+  const startExperience = useCallback(() => {
+      // Unlock audio subsystem during this user gesture (critical for iOS)
+      unlockAudio();
+
       setIsActive(true);
       isActiveRef.current = true;
       if (messages.length === 0) {
@@ -397,9 +579,9 @@ export default function ChatInterface({ settings }) {
           nextMsgIdxRef.current = messages.length;
           generateNextScene();
       }
-  };
+  }, [messages.length, unlockAudio]);
 
-  const generateNextScene = async (isFirst = false, overridePrompt = null) => {
+  const generateNextScene = useCallback(async (isFirst = false, overridePrompt = null) => {
     if (isStreamingRef.current || !isActiveRef.current) return;
     
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
@@ -567,12 +749,10 @@ export default function ChatInterface({ settings }) {
         if (isActiveRef.current && sceneCountRef.current >= 2 && (sceneCountRef.current - 2) % 3 === 0) {
             prefetchButtonContent(); // fire-and-forget, runs in background
         }
-        // If queue is still thin after this scene finished streaming, start the next one immediately
-        if (isActiveRef.current && audioQueueRef.current.length < 5) {
-            generateNextScene();
-        }
+        // NOTE: generateNextScene() is now ONLY called from processAudioQueue (not here)
+        // to prevent race conditions from multiple trigger points.
     }
-  };
+  }, [selectedPersona, customPersonaPrompt, settings, pushToAudioQueue, processAudioQueue, prefetchButtonContent]);
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 max-w-4xl mx-auto w-full shadow-lg border-x border-transparent dark:border-gray-800 transition-colors relative">
