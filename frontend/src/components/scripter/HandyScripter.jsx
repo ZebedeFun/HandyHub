@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Upload } from 'lucide-react';
+import { ArrowLeft, Upload, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import GenerationControls from './GenerationControls';
 import Heatmap from './Heatmap';
@@ -8,7 +8,7 @@ import ScrollingTimeline from './ScrollingTimeline';
 import { generateProceduralScript, generatePartialScript, modifyPartialScript } from '../../services/scriptGenerator';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
 
-export default function HandyScripter({ isDarkMode, toggleTheme }) {
+export default function HandyScripter({ isDarkMode, toggleTheme, settings, openSettings }) {
   const navigate = useNavigate();
   const videoRef = useRef(null);
   
@@ -20,26 +20,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
   const [isPlaying, setIsPlaying] = useState(false);
   
   const [funscript, setFunscript] = useState(null);
-  const [settings, setSettings] = useState(() => {
-    try {
-      const saved = localStorage.getItem('handyTimeSettings');
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      return {};
-    }
-  });
   const [syncToHandy, setSyncToHandy] = useState(false);
-
-  useEffect(() => {
-    fetch('/api/settings')
-      .then(r => r.json())
-      .then(data => {
-        if (Object.keys(data).length > 0) {
-          setSettings(prev => ({ ...prev, ...data }));
-        }
-      })
-      .catch(console.error);
-  }, []);
 
   const syncScriptToHandy = async (scriptJson) => {
     if (!settings.handyKey || !scriptJson) return;
@@ -258,6 +239,9 @@ export default function HandyScripter({ isDarkMode, toggleTheme }) {
           </label>
           <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
             {isDarkMode ? '☀️' : '🌙'}
+          </button>
+          <button onClick={openSettings} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+            <Settings size={20} className="text-gray-600 dark:text-gray-300" />
           </button>
         </div>
       </header>

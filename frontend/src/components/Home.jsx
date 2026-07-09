@@ -1,20 +1,26 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Video } from 'lucide-react';
+import { MessageSquare, Video, Settings } from 'lucide-react';
 
-export default function Home({ isDarkMode, toggleTheme }) {
+export default function Home({ isDarkMode, toggleTheme, openSettings }) {
   const navigate = useNavigate();
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors text-gray-900 dark:text-white flex flex-col items-center justify-center p-6">
       
       {/* Header controls */}
-      <div className="absolute top-6 right-6">
+      <div className="absolute top-6 right-6 flex items-center gap-3">
         <button 
           onClick={toggleTheme} 
           className="p-3 bg-white dark:bg-gray-800 shadow-md rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
         >
           {isDarkMode ? '☀️' : '🌙'}
+        </button>
+        <button 
+          onClick={openSettings} 
+          className="p-3 bg-white dark:bg-gray-800 shadow-md rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+        >
+          <Settings size={20} className="text-gray-600 dark:text-gray-300" />
         </button>
       </div>
 

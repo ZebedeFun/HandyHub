@@ -1,21 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX, Flame, CheckCircle, HelpCircle } from 'lucide-react';
+import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX, Flame, CheckCircle, HelpCircle, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone, stopHamp as apiStopHamp } from '../../services/handyService';
 import XYPad from './XYPad';
 import RemoteSimulator from './RemoteSimulator';
 
-export default function HandyRemote({ isDarkMode, toggleTheme }) {
+export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSettings }) {
   const navigate = useNavigate();
-  
-  const [settings, setSettings] = useState(() => {
-    try {
-      const saved = localStorage.getItem('handyTimeSettings');
-      return saved ? JSON.parse(saved) : {};
-    } catch (e) {
-      return {};
-    }
-  });
   const [deviceStatus, setDeviceStatus] = useState('Disconnected');
   const [isReconnecting, setIsReconnecting] = useState(false);
   
@@ -283,17 +274,6 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
     }
   };
 
-  // Load Settings
-  useEffect(() => {
-    fetch('/api/settings')
-      .then(r => r.json())
-      .then(data => {
-        if (Object.keys(data).length > 0) {
-          setSettings(prev => ({ ...prev, ...data }));
-        }
-      })
-      .catch(console.error);
-  }, []);
 
   // Connection Status Check
   useEffect(() => {
@@ -615,6 +595,9 @@ export default function HandyRemote({ isDarkMode, toggleTheme }) {
           </button>
           <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors border-l pl-4 border-gray-200 dark:border-gray-700">
             {isDarkMode ? '☀️' : '🌙'}
+          </button>
+          <button onClick={openSettings} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+            <Settings size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
         </div>
       </header>

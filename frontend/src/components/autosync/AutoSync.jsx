@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { setSpeed, setStrokeZone } from '../../services/handyService';
+import { Settings } from 'lucide-react';
 
-export default function AutoSync({ isDarkMode, toggleTheme }) {
+export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettings }) {
   const [connectionKey, setConnectionKey] = useState(localStorage.getItem('handySyncKey') || '');
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState('');
@@ -15,8 +16,17 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
   const [testMode, setTestMode] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [sensitivity, setSensitivity] = useState(50);
+  
+  // Area Selection State
+  const [isSelectingArea, setIsSelectingArea] = useState(false);
+  const [cropRect, setCropRect] = useState({ x: 0, y: 0, width: 100, height: 100 });
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [startPos, setStartPos] = useState({ x: 0, y: 0 });
   
   // Refs for tracking
+  const containerRef = useRef(null);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const testCanvasRef = useRef(null);
@@ -50,10 +60,66 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
     }
   };
 
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    if (file.type.startsWith('video/') || file.name.endsWith('.mp4')) {
+      setVideoFile(file);
+      setVideoUrl(URL.createObjectURL(file));
+    }
+  };
+
+  const handleMouseDown = (e) => {
+    if (!isSelectingArea) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setStartPos({ x, y });
+    setCropRect({ x, y, width: 0, height: 0 });
+    setIsDrawing(true);
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDrawing) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    
+    const newX = Math.min(x, startPos.x);
+    const newY = Math.min(y, startPos.y);
+    const newW = Math.abs(x - startPos.x);
+    const newH = Math.abs(y - startPos.y);
+    
+    setCropRect({ x: newX, y: newY, width: newW, height: newH });
+  };
+
+  const handleMouseUp = () => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+    if (cropRect.width < 2 || cropRect.height < 2) {
+      setCropRect({ x: 0, y: 0, width: 100, height: 100 }); // reset if too small
+    }
+  };
+
   const startTracking = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !containerRef.current) return;
     setIsSyncing(true);
     setStrokeZone(connectionKey, minHeight, maxHeight);
+    setIsSelectingArea(false);
     
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -67,7 +133,50 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
         return;
       }
 
-      ctx.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+      const vw = videoRef.current.videoWidth;
+      const vh = videoRef.current.videoHeight;
+      const containerRect = containerRef.current.getBoundingClientRect();
+      
+      const containerRatio = containerRect.width / containerRect.height;
+      const videoRatio = vw / vh;
+      
+      let renderedWidth = containerRect.width;
+      let renderedHeight = containerRect.height;
+      let offsetX = 0;
+      let offsetY = 0;
+      
+      if (containerRatio > videoRatio) {
+        renderedWidth = containerRect.height * videoRatio;
+        offsetX = (containerRect.width - renderedWidth) / 2;
+      } else {
+        renderedHeight = containerRect.width / videoRatio;
+        offsetY = (containerRect.height - renderedHeight) / 2;
+      }
+
+      const cropPxX = (cropRect.x / 100) * containerRect.width;
+      const cropPxY = (cropRect.y / 100) * containerRect.height;
+      const cropPxW = (cropRect.width / 100) * containerRect.width;
+      const cropPxH = (cropRect.height / 100) * containerRect.height;
+
+      const intersectX = Math.max(offsetX, cropPxX);
+      const intersectY = Math.max(offsetY, cropPxY);
+      const intersectR = Math.min(offsetX + renderedWidth, cropPxX + cropPxW);
+      const intersectB = Math.min(offsetY + renderedHeight, cropPxY + cropPxH);
+
+      const intersectW = Math.max(0, intersectR - intersectX);
+      const intersectH = Math.max(0, intersectB - intersectY);
+
+      if (intersectW === 0 || intersectH === 0) {
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+      } else {
+        const sx = ((intersectX - offsetX) / renderedWidth) * vw;
+        const sy = ((intersectY - offsetY) / renderedHeight) * vh;
+        const sw = (intersectW / renderedWidth) * vw;
+        const sh = (intersectH / renderedHeight) * vh;
+        ctx.drawImage(videoRef.current, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+      }
+
       const frameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
       const data = frameData.data;
 
@@ -112,8 +221,8 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
         }
 
         // Calculate motion intensity (0.0 to 1.0)
-        // Max possible diffPixels is 64*64=4096. 
-        const rawIntensity = Math.min(1.0, (diffPixels / (canvas.width * canvas.height)) * 3.0); 
+        const multiplier = sensitivity / 5; // e.g., 50 sensitivity = 10x multiplier
+        const rawIntensity = Math.min(1.0, (diffPixels / (canvas.width * canvas.height)) * multiplier); 
         
         // Apply smoothing (rate of change)
         const smoothFactor = smoothing / 100; // 0 to 1
@@ -153,7 +262,25 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
   }, []);
 
   return (
-    <div className={`min-h-screen ${isDarkMode ? 'dark bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'} font-sans`}>
+    <div 
+      className={`min-h-screen ${isDarkMode ? 'dark bg-slate-900 text-slate-100' : 'bg-slate-50 text-slate-900'} font-sans relative`}
+      onDragOver={handleDragOver}
+    >
+      {isDragging && (
+        <div 
+          className="absolute inset-0 bg-indigo-500/20 backdrop-blur-sm z-50 flex items-center justify-center border-4 border-indigo-500 border-dashed"
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          <div className="bg-white dark:bg-slate-800 p-8 rounded-2xl shadow-2xl flex flex-col items-center pointer-events-none">
+            <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Drop Video Here</h2>
+            <p className="text-slate-500 dark:text-slate-400 mt-2 text-center max-w-sm">
+              Drop an MP4 video anywhere to load it for auto-sync.
+            </p>
+          </div>
+        </div>
+      )}
+      
       <header className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-900 sticky top-0 z-10 shadow-sm">
         <div className="flex items-center gap-4">
           <a href="/" className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-500 to-indigo-600">HandyTime</a>
@@ -170,6 +297,9 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
           <button onClick={() => setShowHelp(true)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-lg font-medium transition-colors text-sm">Help</button>
           <button onClick={toggleTheme} className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors" title="Toggle Theme">
             {isDarkMode ? '☀️' : '🌙'}
+          </button>
+          <button onClick={openSettings} className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors" title="Settings">
+            <Settings size={20} />
           </button>
         </div>
       </header>
@@ -188,18 +318,44 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
                 </label>
               </div>
             ) : (
-              <div className="relative w-full h-[60vh] bg-black">
+              <div className="relative w-full h-[60vh] bg-black group" ref={containerRef}>
                 <video 
                   ref={videoRef}
                   src={videoUrl}
-                  controls
+                  controls={!isSelectingArea}
                   crossOrigin="anonymous"
                   className="w-full h-full object-contain"
                   onPlay={isSyncing ? null : startTracking}
                   onPause={stopTracking}
                 />
+                
+                {isSelectingArea && (
+                  <div 
+                    className="absolute inset-0 z-20 cursor-crosshair"
+                    onMouseDown={handleMouseDown}
+                    onMouseMove={handleMouseMove}
+                    onMouseUp={handleMouseUp}
+                    onMouseLeave={handleMouseUp}
+                  />
+                )}
+
+                {videoUrl && (
+                  <div 
+                    className={`absolute border-2 border-red-500 bg-red-500/20 pointer-events-none transition-opacity duration-150 ${isSelectingArea ? 'opacity-100 z-10' : 'opacity-30 z-10'} group-hover:opacity-100`}
+                    style={{
+                      left: `${cropRect.x}%`,
+                      top: `${cropRect.y}%`,
+                      width: `${cropRect.width}%`,
+                      height: `${cropRect.height}%`,
+                      display: (cropRect.width === 100 && cropRect.height === 100 && !isSelectingArea) ? 'none' : 'block'
+                    }}
+                  >
+                    {isSelectingArea && <div className="absolute -top-6 left-0 bg-red-500 text-white text-xs px-2 py-0.5 rounded-sm whitespace-nowrap shadow-sm">Target Area</div>}
+                  </div>
+                )}
+
                 {testMode && (
-                  <div className="absolute top-4 left-4 bg-black/70 p-2 rounded-lg border border-slate-600 backdrop-blur-sm pointer-events-none">
+                  <div className="absolute top-4 left-4 bg-black/70 p-2 rounded-lg border border-slate-600 backdrop-blur-sm pointer-events-none z-30">
                     <p className="text-xs text-slate-300 mb-1 font-semibold uppercase tracking-wider">Motion Heatmap</p>
                     <canvas ref={testCanvasRef} className="w-32 h-32 border border-slate-500 bg-black/50" />
                   </div>
@@ -218,7 +374,16 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
                   >
                     {isSyncing ? '⏹ Stop Syncing' : '▶️ Start Syncing'}
                   </button>
-                  <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none">
+                  <button 
+                    onClick={() => {
+                      setIsSelectingArea(!isSelectingArea);
+                      if (isSyncing) stopTracking();
+                    }}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors border shadow-sm ${isSelectingArea ? 'bg-red-100 text-red-700 border-red-500 dark:bg-red-900/40 dark:text-red-300' : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600'}`}
+                  >
+                    {isSelectingArea ? 'Finish Selecting' : 'Select Target Area'}
+                  </button>
+                  <label className="flex items-center gap-2 text-sm font-medium cursor-pointer select-none ml-2 text-slate-700 dark:text-slate-300">
                     <input type="checkbox" checked={testMode} onChange={(e) => setTestMode(e.target.checked)} className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 bg-slate-100 border-slate-300" />
                     Test Mode (Visualizer)
                   </label>
@@ -268,6 +433,16 @@ export default function AutoSync({ isDarkMode, toggleTheme }) {
                   <input type="range" min="50" max="100" value={maxSpeed} onChange={(e) => setMaxSpeed(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500" title="Maximum Speed (max motion)" />
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">Maps video motion intensity to device speed.</p>
+              </div>
+
+              {/* Sensitivity */}
+              <div>
+                <div className="flex justify-between mb-2">
+                  <label className="text-sm font-medium text-slate-700 dark:text-slate-300">Motion Sensitivity</label>
+                  <span className="text-xs bg-slate-100 dark:bg-slate-700 px-2 py-1 rounded font-mono">{sensitivity}%</span>
+                </div>
+                <input type="range" min="1" max="100" value={sensitivity} onChange={(e) => setSensitivity(parseInt(e.target.value))} className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-pink-500" />
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">Higher sensitivity means small movements cause larger speed increases.</p>
               </div>
 
               {/* Smoothing / Rate of Change */}
