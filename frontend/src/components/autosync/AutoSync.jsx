@@ -19,6 +19,19 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   const [isDragging, setIsDragging] = useState(false);
   const [sensitivity, setSensitivity] = useState(50);
   
+  // Refs for dynamic parameter reading in requestAnimationFrame
+  const minSpeedRef = useRef(minSpeed);
+  const maxSpeedRef = useRef(maxSpeed);
+  const smoothingRef = useRef(smoothing);
+  const sensitivityRef = useRef(sensitivity);
+  const testModeRef = useRef(testMode);
+
+  useEffect(() => { minSpeedRef.current = minSpeed; }, [minSpeed]);
+  useEffect(() => { maxSpeedRef.current = maxSpeed; }, [maxSpeed]);
+  useEffect(() => { smoothingRef.current = smoothing; }, [smoothing]);
+  useEffect(() => { sensitivityRef.current = sensitivity; }, [sensitivity]);
+  useEffect(() => { testModeRef.current = testMode; }, [testMode]);
+  
   // Area Selection State
   const [isSelectingArea, setIsSelectingArea] = useState(false);
   const [cropRect, setCropRect] = useState({ x: 0, y: 0, width: 100, height: 100 });
@@ -192,10 +205,10 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
         let diffSum = 0;
         let diffPixels = 0;
         const prevData = prevFrameRef.current.data;
-        const testCtx = testMode && testCanvasRef.current ? testCanvasRef.current.getContext('2d') : null;
+        const testCtx = testModeRef.current && testCanvasRef.current ? testCanvasRef.current.getContext('2d') : null;
         
         let testImgData;
-        if (testMode && testCtx) {
+        if (testModeRef.current && testCtx) {
           testCanvasRef.current.width = canvas.width;
           testCanvasRef.current.height = canvas.height;
           testImgData = testCtx.createImageData(canvas.width, canvas.height);
@@ -215,7 +228,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
             diffPixels++;
           }
           
-          if (testMode && testImgData) {
+          if (testModeRef.current && testImgData) {
             const val = diff > 20 ? 255 : 0;
             testImgData.data[i] = val; // R
             testImgData.data[i+1] = 0; // G
@@ -224,23 +237,23 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
           }
         }
         
-        if (testMode && testCtx && testImgData) {
+        if (testModeRef.current && testCtx && testImgData) {
           testCtx.putImageData(testImgData, 0, 0);
         }
 
         // Calculate motion intensity (0.0 to 1.0)
         // Sensitivity maps to a multiplier from ~0.1x to 10x
         // 50 -> 1x, 100 -> 10x, 1 -> 0.1x
-        const multiplier = Math.pow(10, (sensitivity - 50) / 50); 
+        const multiplier = Math.pow(10, (sensitivityRef.current - 50) / 50); 
         const rawIntensity = Math.min(1.0, (diffPixels / (canvas.width * canvas.height)) * multiplier); 
         
         // Apply smoothing (rate of change)
-        const smoothFactor = smoothing / 100; // 0 to 1
+        const smoothFactor = smoothingRef.current / 100; // 0 to 1
         const smoothed = (currentSpeedRef.current * smoothFactor) + (rawIntensity * (1 - smoothFactor));
         currentSpeedRef.current = smoothed;
         
         // Map to min/max speed
-        const mappedSpeed = minSpeed + (smoothed * (maxSpeed - minSpeed));
+        const mappedSpeed = minSpeedRef.current + (smoothed * (maxSpeedRef.current - minSpeedRef.current));
         
         setCurrentMotion(Math.round(mappedSpeed));
         
