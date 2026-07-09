@@ -210,13 +210,13 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
           const gray2 = (r2 + g2 + b2) / 3;
           const diff = Math.abs(gray1 - gray2);
           
-          if (diff > 8) { // Lower threshold for subtle noise/motion
+          if (diff > 20) { // Threshold for noise (higher to ignore compression/jitter)
             diffSum += diff;
             diffPixels++;
           }
           
           if (testMode && testImgData) {
-            const val = diff > 8 ? 255 : 0;
+            const val = diff > 20 ? 255 : 0;
             testImgData.data[i] = val; // R
             testImgData.data[i+1] = 0; // G
             testImgData.data[i+2] = 0; // B
@@ -229,8 +229,9 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
         }
 
         // Calculate motion intensity (0.0 to 1.0)
-        // Sensitivity 50 -> multiplier 10. Sensitivity 100 -> multiplier 100.
-        const multiplier = Math.pow(10, sensitivity / 50); 
+        // Sensitivity maps to a multiplier from ~0.1x to 10x
+        // 50 -> 1x, 100 -> 10x, 1 -> 0.1x
+        const multiplier = Math.pow(10, (sensitivity - 50) / 50); 
         const rawIntensity = Math.min(1.0, (diffPixels / (canvas.width * canvas.height)) * multiplier); 
         
         // Apply smoothing (rate of change)
