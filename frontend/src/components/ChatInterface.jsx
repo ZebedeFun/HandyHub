@@ -32,6 +32,12 @@ export default function ChatInterface({ settings }) {
   // Tracks which message index is currently being spoken (not just the newest one)
   const [activeDisplayMsgIdx, setActiveDisplayMsgIdx] = useState(0);
 
+  const selectedPersonaRef = useRef(selectedPersona);
+  const customPersonaPromptRef = useRef(customPersonaPrompt);
+  
+  useEffect(() => { selectedPersonaRef.current = selectedPersona; }, [selectedPersona]);
+  useEffect(() => { customPersonaPromptRef.current = customPersonaPrompt; }, [customPersonaPrompt]);
+
   
   const messagesEndRef = useRef(null);
   const messagesRef = useRef(messages);
@@ -315,8 +321,8 @@ export default function ChatInterface({ settings }) {
       .slice(-6)
       .map(m => ({ role: m.role, content: m.text }));
 
-    const currentPersona = selectedPersona;
-    const currentPersonaPrompt = currentPersona.id === 'custom' ? customPersonaPrompt : currentPersona.prompt;
+    const currentPersona = selectedPersonaRef.current;
+    const currentPersonaPrompt = currentPersona.id === 'custom' ? customPersonaPromptRef.current : currentPersona.prompt;
     const sysPrompt = [
       `IMPORTANT CURRENT MOOD / ROLE: ${currentPersonaPrompt}`,
       s.systemPrompt
@@ -635,7 +641,7 @@ export default function ChatInterface({ settings }) {
     }
 
     let apiMessages = [];
-    const currentPersonaPrompt = selectedPersona.id === 'custom' ? customPersonaPrompt : selectedPersona.prompt;
+    const currentPersonaPrompt = selectedPersonaRef.current.id === 'custom' ? customPersonaPromptRef.current : selectedPersonaRef.current.prompt;
 
     if (overridePrompt) {
         apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${currentPersonaPrompt}]\n\n${overridePrompt}` }];
