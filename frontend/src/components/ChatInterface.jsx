@@ -228,7 +228,7 @@ export default function ChatInterface({ settings }) {
     activeBlobUrlsRef.current.clear();
   }, []);
 
-  const handleFinishClick = useCallback(() => {
+  const handleFinishClick = () => {
     const s = settingsRef.current;
 
     // Stop current audio and clear queue
@@ -296,7 +296,7 @@ export default function ChatInterface({ settings }) {
         generateNextScene(false, '(The user has just finished. Talk to them about it, praise them, and offer post-orgasm care or teasing depending on your persona.)');
       }
     }
-  }, [finishState, fetchTTSAudio, revokeBlobUrl]);
+  };
 
   // ------------------------------------------------------------------
   // Button pre-cache: fire two parallel LLM + TTS calls in the background
@@ -383,12 +383,12 @@ export default function ChatInterface({ settings }) {
     isPrefetchingRef.current = false;
   }, [selectedPersona, customPersonaPrompt, fetchTTSAudio]);
 
-  const pushToAudioQueue = useCallback((item) => {
+  const pushToAudioQueue = (item) => {
     const audioUrlPromise = fetchTTSAudio(item.text);
     // Stamp the message index so processAudioQueue knows which message this sentence belongs to
     audioQueueRef.current.push({ ...item, audioUrlPromise, msgIdx: nextMsgIdxRef.current });
     processAudioQueue();
-  }, [fetchTTSAudio]);
+  };
 
   /**
    * Play a single audio item using the SHARED audio element.
@@ -488,7 +488,7 @@ export default function ChatInterface({ settings }) {
     });
   }, [revokeBlobUrl]);
 
-  const processAudioQueue = useCallback(async () => {
+  const processAudioQueue = async () => {
     if (isProcessingQueueRef.current) return;
     isProcessingQueueRef.current = true;
     setIsPlayingQueue(true);
@@ -555,7 +555,7 @@ export default function ChatInterface({ settings }) {
     if (isActiveRef.current && !isStreamingRef.current) {
       generateNextScene();
     }
-  }, [playAudioOnSharedElement]);
+  };
 
   /**
    * Unlock the shared audio element by playing a silent snippet in response
@@ -621,7 +621,7 @@ export default function ChatInterface({ settings }) {
       }
   }, [messages.length, unlockAudio]);
 
-  const generateNextScene = useCallback(async (isFirst = false, overridePrompt = null) => {
+  const generateNextScene = async (isFirst = false, overridePrompt = null) => {
     if (isStreamingRef.current || !isActiveRef.current) return;
     
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
@@ -837,7 +837,7 @@ export default function ChatInterface({ settings }) {
         // NOTE: generateNextScene() is now ONLY called from processAudioQueue (not here)
         // to prevent race conditions from multiple trigger points.
     }
-  }, [selectedPersona, customPersonaPrompt, settings, pushToAudioQueue, processAudioQueue, prefetchButtonContent]);
+  };
 
   return (
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900 max-w-4xl mx-auto w-full shadow-lg border-x border-transparent dark:border-gray-800 transition-colors relative">
