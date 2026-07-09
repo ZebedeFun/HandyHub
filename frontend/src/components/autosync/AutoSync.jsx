@@ -33,6 +33,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   const prevFrameRef = useRef(null);
   const requestRef = useRef(null);
   const lastUpdateRef = useRef(0);
+  const lastFrameTimeRef = useRef(0);
   const currentSpeedRef = useRef(0);
   
   // Internal state for UI visualization
@@ -132,6 +133,13 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
         requestRef.current = requestAnimationFrame(trackFrame);
         return;
       }
+      
+      // Throttle frame processing to ~10 FPS to ensure enough movement occurs between frames
+      if (time - lastFrameTimeRef.current < 100) {
+        requestRef.current = requestAnimationFrame(trackFrame);
+        return;
+      }
+      lastFrameTimeRef.current = time;
 
       const vw = videoRef.current.videoWidth;
       const vh = videoRef.current.videoHeight;
@@ -202,13 +210,13 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
           const gray2 = (r2 + g2 + b2) / 3;
           const diff = Math.abs(gray1 - gray2);
           
-          if (diff > 15) { // Threshold for noise
+          if (diff > 8) { // Lower threshold for subtle noise/motion
             diffSum += diff;
             diffPixels++;
           }
           
           if (testMode && testImgData) {
-            const val = diff > 15 ? 255 : 0;
+            const val = diff > 8 ? 255 : 0;
             testImgData.data[i] = val; // R
             testImgData.data[i+1] = 0; // G
             testImgData.data[i+2] = 0; // B
@@ -221,7 +229,8 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
         }
 
         // Calculate motion intensity (0.0 to 1.0)
-        const multiplier = sensitivity / 5; // e.g., 50 sensitivity = 10x multiplier
+        // Sensitivity 50 -> multiplier 10. Sensitivity 100 -> multiplier 100.
+        const multiplier = Math.pow(10, sensitivity / 50); 
         const rawIntensity = Math.min(1.0, (diffPixels / (canvas.width * canvas.height)) * multiplier); 
         
         // Apply smoothing (rate of change)
@@ -229,10 +238,10 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
         const smoothed = (currentSpeedRef.current * smoothFactor) + (rawIntensity * (1 - smoothFactor));
         currentSpeedRef.current = smoothed;
         
-        setCurrentMotion(Math.round(smoothed * 100));
-
         // Map to min/max speed
         const mappedSpeed = minSpeed + (smoothed * (maxSpeed - minSpeed));
+        
+        setCurrentMotion(Math.round(mappedSpeed));
         
         // Throttled API call (e.g., max twice a second)
         if (time - lastUpdateRef.current > 500) {
@@ -253,6 +262,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
     if (requestRef.current) cancelAnimationFrame(requestRef.current);
     prevFrameRef.current = null;
     setSpeed(connectionKey, 0); // Stop device
+    setCurrentMotion(0);
   };
 
   useEffect(() => {
@@ -389,12 +399,18 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
                   </label>
                 </div>
                 
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Current Output:</span>
-                  <div className="w-32 h-4 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden shadow-inner">
-                    <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 transition-all duration-200 ease-out" style={{ width: `${currentMotion}%` }} />
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Device Speed:</span>
+                    <div className="w-24 h-3 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden shadow-inner">
+                      <div className="h-full bg-blue-500 transition-all duration-200 ease-out" style={{ width: `${currentMotion}%` }} />
+                    </div>
+                    <span className="text-xs font-bold font-mono w-8">{currentMotion}%</span>
                   </div>
-                  <span className="text-sm font-bold w-8">{currentMotion}%</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">Stroke:</span>
+                    <span className="text-xs font-bold font-mono text-indigo-600 dark:text-indigo-400">{minHeight}% - {maxHeight}%</span>
+                  </div>
                 </div>
               </div>
             )}
