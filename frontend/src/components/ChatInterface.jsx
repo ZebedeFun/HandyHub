@@ -50,6 +50,16 @@ export default function ChatInterface({ settings }) {
   // Tracks whether the shared audio element has been unlocked by a user gesture
   const audioUnlockedRef = useRef(false);
 
+  // --- Detect mobile/touch devices (for keep-awake feature) ---
+  const isMobileRef = useRef(false);
+  useEffect(() => {
+    isMobileRef.current = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+      || ('ontouchstart' in window && window.innerWidth < 1024);
+  }, []);
+
+  // --- Keep-awake: silent looping audio to prevent iOS auto-lock (mobile only) ---
+  const keepAwakeAudioRef = useRef(null);
+
   // --- TTS concurrency limiter ---
   const ttsInFlightRef = useRef(0);
   const ttsWaitQueueRef = useRef([]);
@@ -84,7 +94,17 @@ export default function ChatInterface({ settings }) {
     audio.preload = 'auto';
     audioElRef.current = audio;
 
-    return () => { 
+    // Create the keep-awake silent audio (mobile only, prevents iOS auto-lock)
+    if (isMobileRef.current) {
+      const keepAwake = new Audio();
+      // Generate a silent 1-second WAV inline (tiny, no network request)
+      keepAwake.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
+      keepAwake.loop = true;
+      keepAwake.volume = 0;
+      keepAwakeAudioRef.current = keepAwake;
+    }
+
+    return () => {
       if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
       // Revoke any lingering blob URL
       if (audio.src && audio.src.startsWith('blob:')) {
@@ -93,6 +113,11 @@ export default function ChatInterface({ settings }) {
       audio.pause();
       audio.src = '';
       audio.load();
+      // Stop keep-awake
+      if (keepAwakeAudioRef.current) {
+        keepAwakeAudioRef.current.pause();
+        keepAwakeAudioRef.current.src = '';
+      }
     };
   }, []);
 
@@ -167,6 +192,11 @@ export default function ChatInterface({ settings }) {
     isProcessingQueueRef.current = false;
     setIsPlayingQueue(false);
     setActiveSentence('');
+
+    // 2b. Stop keep-awake loop
+    if (keepAwakeAudioRef.current) {
+      keepAwakeAudioRef.current.pause();
+    }
 
     // 3. Stop shared audio element
     if (audioElRef.current) {
@@ -565,6 +595,11 @@ export default function ChatInterface({ settings }) {
   const startExperience = useCallback(() => {
       // Unlock audio subsystem during this user gesture (critical for iOS)
       unlockAudio();
+
+      // Start keep-awake silent loop (mobile only, prevents iOS auto-lock)
+      if (keepAwakeAudioRef.current) {
+        keepAwakeAudioRef.current.play().catch(() => {});
+      }
 
       setIsActive(true);
       isActiveRef.current = true;
