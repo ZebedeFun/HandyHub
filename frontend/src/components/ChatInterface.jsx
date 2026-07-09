@@ -316,10 +316,16 @@ export default function ChatInterface({ settings }) {
     climaxPrefetchRef.current = { status: 'fetching', text: '', audioUrlPromise: null };
     donePrefetchRef.current   = { status: 'fetching', text: '', audioUrlPromise: null };
 
-    // Take a snapshot of recent context (last 6 messages)
-    const recentCtx = messagesRef.current
-      .slice(-6)
-      .map(m => ({ role: m.role, content: m.text }));
+    // Fix consecutive assistant roles bug: Some APIs/models break if multiple assistant messages are sent in a row.
+    // We combine recent history into a single assistant message to ensure strict user->assistant->user alternation.
+    const recentMessages = messagesRef.current.slice(-10); // Last 10 for prefetch context
+    let recentCtx = [];
+    if (recentMessages.length > 0) {
+        recentCtx = [
+            { role: 'user', content: '(Please start the scene and begin playing with me)' },
+            { role: 'assistant', content: recentMessages.map(m => m.text).join('\n\n') }
+        ];
+    }
 
     const currentPersona = selectedPersonaRef.current;
     const currentPersonaPrompt = currentPersona.id === 'custom' ? customPersonaPromptRef.current : currentPersona.prompt;
@@ -643,14 +649,21 @@ export default function ChatInterface({ settings }) {
     let apiMessages = [];
     const currentPersonaPrompt = selectedPersonaRef.current.id === 'custom' ? customPersonaPromptRef.current : selectedPersonaRef.current.prompt;
 
-    if (overridePrompt) {
-        apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${currentPersonaPrompt}]\n\n${overridePrompt}` }];
-    } else if (isFirst) {
-        apiMessages = [
-            { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${currentPersonaPrompt}]\n\n(Please start the scene and begin playing with me)` }
-        ];
+    const promptText = overridePrompt || (isFirst ? `(Please start the scene and begin playing with me)` : `(Please continue the scene, moving the situation slowly forward)`);
+    const userMessage = { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${currentPersonaPrompt}]\n\n${promptText}` };
+
+    if (isFirst || messagesRef.current.length === 0) {
+        apiMessages = [userMessage];
     } else {
-        apiMessages = [...messagesRef.current.map(m => ({ role: m.role, content: m.text })), { role: 'user', content: `[System Reminder: Adopt the following persona strictly: ${currentPersonaPrompt}]\n\n(Please continue the scene, moving the situation slowly forward)` }];
+        // Fix consecutive assistant roles bug: Open-weights models (Llama, Mistral) hallucinate 
+        // if they receive multiple 'assistant' messages in a row without 'user' messages in between.
+        // We combine the history (up to last 30 messages to save context) into a single assistant block.
+        const historyMessages = messagesRef.current.slice(-30);
+        apiMessages = [
+            { role: 'user', content: '(Please start the scene and begin playing with me)' },
+            { role: 'assistant', content: historyMessages.map(m => m.text).join('\n\n') },
+            userMessage
+        ];
     }
 
     // Record the index this new message will occupy BEFORE appending it
