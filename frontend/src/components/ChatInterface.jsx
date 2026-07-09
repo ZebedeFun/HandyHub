@@ -735,20 +735,44 @@ export default function ChatInterface({ settings }) {
                             }
                         }
 
-                        // Drain ALL sentence boundaries in the buffer (not just the first per chunk)
-                        // so large LLM chunks push multiple sentences to TTS immediately.
-                        let bm;
-                        while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
-                          const boundaryIndex = bm.index + bm[1].length;
-                          const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
-                          ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
-                          if (sentence.length > 0) {
-                            pushToAudioQueue({ text: sentence, actions: [...currentActions] });
-                            currentActions = [];
+                        // Drain chunks from the ttsBuffer according to the active chunking strategy
+                        const chunkingMode = settingsRef.current.ttsChunking || 'sentence';
+
+                        if (chunkingMode === 'sentence') {
+                          // Per-sentence: split at punctuation boundaries
+                          let bm;
+                          while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
+                            const boundaryIndex = bm.index + bm[1].length;
+                            const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
+                            ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
+                            if (sentence.length > 0) {
+                              pushToAudioQueue({ text: sentence, actions: [...currentActions] });
+                              currentActions = [];
+                            }
+                          }
+                        } else if (chunkingMode === 'tagChange') {
+                          // Per-tag-change: accumulate text; only push when actions change
+                          // (The tag parsing above already updates currentActions.
+                          //  We push accumulated text when a new tag group is detected.)
+                          // The pushing happens in the bracket parsing loop above:
+                          // when we find a HANDY tag, we push any accumulated ttsBuffer
+                          // before the tag, then start a new accumulation for the post-tag text.
+                          // BUT: we also want to drain sentence boundaries within each tag group
+                          // for better streaming responsiveness — so we still split on sentences
+                          // but only reset actions when a tag change occurs.
+                          let bm;
+                          while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
+                            const boundaryIndex = bm.index + bm[1].length;
+                            const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
+                            ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
+                            if (sentence.length > 0) {
+                              pushToAudioQueue({ text: sentence, actions: [...currentActions] });
+                              // Keep currentActions — don't reset for tagChange mode
+                            }
                           }
                         }
-
-
+                        // wholeScene mode: don't drain anything during streaming;
+                        // everything accumulates in ttsBuffer and gets pushed at stream end.
 
                         setMessages(prev => {
                             const updated = [...prev];
@@ -761,6 +785,8 @@ export default function ChatInterface({ settings }) {
             }
         }
         
+        const chunkingMode = settingsRef.current.ttsChunking || 'sentence';
+
         if (isActiveRef.current && streamBuffer) {
             ttsBuffer += streamBuffer;
             textToDisplay += streamBuffer;
@@ -772,7 +798,16 @@ export default function ChatInterface({ settings }) {
         }
 
         if (isActiveRef.current && ttsBuffer.trim().length > 0) {
-            pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
+            if (chunkingMode === 'wholeScene') {
+              // Push the entire accumulated text as one TTS call, with all actions
+              pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
+            } else if (chunkingMode === 'tagChange') {
+              // Push any remaining text with the last set of actions
+              pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
+            } else {
+              // sentence mode: push leftover (no actions remain at this point normally)
+              pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
+            }
         }
         
     } catch (err) {
