@@ -7,11 +7,9 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
   const navigate = useNavigate();
   const [gameState, setGameState] = useState('idle'); // idle, playing, gameover
   const [score, setScore] = useState(0);
-  const [difficulty, setDifficulty] = useState('medium'); // easy, medium, hard
+  const [difficulty, setDifficulty] = useState('medium');
   
   const [items, setItems] = useState([]);
-  const requestRef = useRef();
-  const lastTimeRef = useRef();
   
   // Game state refs for the loop
   const itemsRef = useRef([]);
@@ -35,7 +33,7 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
       return;
     }
     
-    setGameState('playing');
+    // Reset state
     setScore(0);
     setItems([]);
     itemsRef.current = [];
@@ -44,74 +42,84 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
     scoreRef.current = 0;
     
     // Initial Handy Command
-    // Assuming 100 is top, so 30% from top is min=70, max=100
     setStrokeZone(handyKey, 100 - depthRef.current, 100);
     setSpeed(handyKey, speedRef.current);
     
-    lastTimeRef.current = performance.now();
-    requestRef.current = requestAnimationFrame(gameLoop);
+    setGameState('playing');
   };
   
   const stopGame = () => {
     setGameState('gameover');
-    cancelAnimationFrame(requestRef.current);
     stopHamp(handyKey);
   };
 
+  // Main Game Loop using useEffect
   useEffect(() => {
-    return () => {
-      cancelAnimationFrame(requestRef.current);
-      if (gameState === 'playing') {
-        stopHamp(handyKey);
-      }
-    };
-  }, [gameState, handyKey]);
+    if (gameState !== 'playing') return;
 
-  const gameLoop = (time) => {
-    if (!lastTimeRef.current) lastTimeRef.current = time;
-    // Cap deltaTime to prevent huge jumps if tab was backgrounded
-    const deltaTime = Math.min(time - lastTimeRef.current, 50);
-    
-    // Spawn new item
-    if (Math.random() < 0.02 * (difficultyMultiplier[difficulty] || 2)) {
-      itemsRef.current.push({
-        id: Math.random().toString(36).substr(2, 9),
-        x: Math.random() * 90, // % left
-        y: 0, // % top
-        speed: 10 + Math.random() * 15 * difficultyMultiplier[difficulty] // % per second
-      });
-    }
-    
-    // Update positions
-    let missedCount = 0;
-    itemsRef.current = itemsRef.current.map(item => {
-      const newY = item.y + (item.speed * (deltaTime / 1000));
-      if (newY > 100) missedCount++;
-      return { ...item, y: newY };
-    }).filter(item => item.y <= 100);
-    
-    // If items are building up or missing
-    if (missedCount > 0 || itemsRef.current.length > 5) {
-      // Increase penalty
-      const penalty = missedCount * 2 + (itemsRef.current.length > 5 ? 0.5 : 0);
-      speedRef.current = Math.min(100, speedRef.current + penalty * difficultyMultiplier[difficulty]);
-      depthRef.current = Math.min(100, depthRef.current + penalty * difficultyMultiplier[difficulty]);
+    let animationFrameId;
+    let lastTime = performance.now();
+    let lastPenaltyTime = performance.now();
+
+    const loop = (time) => {
+      // Prevent huge jumps if tab is inactive
+      const deltaTime = Math.min(time - lastTime, 50);
+      lastTime = time;
       
-      setStrokeZone(handyKey, 100 - Math.round(depthRef.current), 100);
-      setSpeed(handyKey, Math.round(speedRef.current));
-    }
-    
-    setItems([...itemsRef.current]);
-    lastTimeRef.current = time;
-    
-    if (itemsRef.current.length > 20) {
-        // Auto game over if completely overwhelmed
+      const diffMult = difficultyMultiplier[difficulty] || 2;
+
+      // Spawn new item (approx 2-4 items per second)
+      if (Math.random() < 0.02 * diffMult) {
+        itemsRef.current.push({
+          id: Math.random().toString(36).substr(2, 9),
+          x: 5 + Math.random() * 90, // % left (keep away from edges)
+          y: -10, // % top (start slightly above)
+          speed: 10 + Math.random() * 15 * diffMult // % per second
+        });
+      }
+      
+      // Update positions
+      let missedCount = 0;
+      itemsRef.current = itemsRef.current.map(item => {
+        const newY = item.y + (item.speed * (deltaTime / 1000));
+        // Give it a buffer below 100 before counting as missed
+        if (newY > 110) missedCount++;
+        return { ...item, y: newY };
+      }).filter(item => item.y <= 110);
+      
+      // Penalty Logic
+      if (missedCount > 0 || itemsRef.current.length > 5) {
+        // Throttle API calls to max once per second to prevent rate limiting
+        if (time - lastPenaltyTime > 1000) {
+          const penalty = missedCount * 2 + (itemsRef.current.length > 5 ? 2 : 0);
+          speedRef.current = Math.min(100, speedRef.current + penalty * diffMult);
+          depthRef.current = Math.min(100, depthRef.current + penalty * diffMult);
+          
+          setStrokeZone(handyKey, 100 - Math.round(depthRef.current), 100);
+          setSpeed(handyKey, Math.round(speedRef.current));
+          
+          lastPenaltyTime = time;
+        }
+      }
+      
+      // Trigger re-render with new items
+      setItems([...itemsRef.current]);
+      
+      // Check lose condition
+      if (itemsRef.current.length > 20) {
         stopGame();
         return;
-    }
-    
-    requestRef.current = requestAnimationFrame(gameLoop);
-  };
+      }
+      
+      animationFrameId = requestAnimationFrame(loop);
+    };
+
+    animationFrameId = requestAnimationFrame(loop);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [gameState, difficulty, handyKey]);
 
   const handleItemClick = (id) => {
     if (gameState !== 'playing') return;
