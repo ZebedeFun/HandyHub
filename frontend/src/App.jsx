@@ -5,6 +5,7 @@ import HandyTimeApp from './components/HandyTimeApp';
 import HandyScripter from './components/scripter/HandyScripter';
 import HandyRemote from './components/remote/HandyRemote';
 import AutoSync from './components/autosync/AutoSync';
+import GameMode from './components/game/GameMode';
 import SettingsModal from './components/SettingsModal';
 import { Settings } from 'lucide-react';
 
@@ -105,6 +106,7 @@ export default function App() {
         <Route path="/scripter" element={<HandyScripter isDarkMode={isDarkMode} toggleTheme={toggleTheme} settings={settings} openSettings={() => setIsSettingsOpen(true)} />} />
         <Route path="/remote" element={<HandyRemote isDarkMode={isDarkMode} toggleTheme={toggleTheme} settings={settings} openSettings={() => setIsSettingsOpen(true)} />} />
         <Route path="/autosync" element={<AutoSync isDarkMode={isDarkMode} toggleTheme={toggleTheme} settings={settings} openSettings={() => setIsSettingsOpen(true)} />} />
+        <Route path="/game" element={<GameMode isDarkMode={isDarkMode} toggleTheme={toggleTheme} settings={settings} openSettings={() => setIsSettingsOpen(true)} />} />
       </Routes>
       {isSettingsOpen && <SettingsModal settings={settings} onSave={saveSettings} onClose={() => setIsSettingsOpen(false)} />}
     </Router>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { MessageSquare, Video, Settings } from 'lucide-react';
+import { MessageSquare, Video, Settings, Gamepad2 } from 'lucide-react';
 
 export default function Home({ isDarkMode, toggleTheme, openSettings }) {
   const navigate = useNavigate();
@@ -33,7 +33,22 @@ export default function Home({ isDarkMode, toggleTheme, openSettings }) {
         </p>
       </div>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-7xl w-full">
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-8 max-w-[90rem] w-full">
+        {/* Game Mode Card */}
+        <button 
+          onClick={() => navigate('/game')}
+          className="group relative bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 border border-gray-100 dark:border-gray-700 overflow-hidden text-left"
+        >
+          <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-red-500 to-orange-500"></div>
+          <div className="bg-red-100 dark:bg-red-900/30 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 text-red-500 dark:text-red-400 group-hover:scale-110 transition-transform">
+            <Gamepad2 size={32} />
+          </div>
+          <h2 className="text-2xl font-bold mb-3">Game Mode</h2>
+          <p className="text-gray-600 dark:text-gray-400">
+            A playful challenge where your performance directly impacts device speed and depth!
+          </p>
+        </button>
+
         {/* Handy Time Card */}
         <button 
           onClick={() => navigate('/chat')}
