@@ -289,6 +289,19 @@ if (process.env.NODE_ENV === 'production') {
     });
 }
 
+// Backgrounds Endpoint
+app.get('/api/backgrounds', (req, res) => {
+    const bgDir = path.join(__dirname, '../frontend/public/backgrounds');
+    if (!fs.existsSync(bgDir)) return res.json({ images: [] });
+    try {
+        const files = fs.readdirSync(bgDir);
+        const images = files.filter(f => /\.(jpg|jpeg|png|gif|webp)$/i.test(f));
+        res.json({ images: images.map(img => `/backgrounds/${img}`) });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to read backgrounds' });
+    }
+});
+
 app.listen(port, () => {
     console.log(`Backend proxy running on http://localhost:${port}`);
 });

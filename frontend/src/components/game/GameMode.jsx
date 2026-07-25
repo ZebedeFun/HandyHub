@@ -35,6 +35,29 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
     localStorage.setItem('gameMaxDepth', maxDepth);
   }, [minSpeed, maxSpeed, minDepth, maxDepth]);
 
+  const [backgrounds, setBackgrounds] = useState([]);
+  const [bgIndex, setBgIndex] = useState(0);
+
+  useEffect(() => {
+    fetch('/api/backgrounds')
+      .then(res => res.json())
+      .then(data => {
+        if (data.images && data.images.length > 0) {
+          setBackgrounds(data.images);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if (backgrounds.length > 1) {
+      const interval = setInterval(() => {
+        setBgIndex(prev => (prev + 1) % backgrounds.length);
+      }, 10000); // Change every 10 seconds
+      return () => clearInterval(interval);
+    }
+  }, [backgrounds]);
+
   const [items, setItems] = useState([]);
   
   const itemsRef = useRef([]);
@@ -300,8 +323,15 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors text-gray-900 dark:text-white flex flex-col items-center p-6">
-      <div className="w-full max-w-4xl flex justify-between items-center mb-6">
+    <div className={`min-h-screen ${backgrounds.length > 0 ? 'bg-white/60 dark:bg-black/80 backdrop-blur-sm' : 'bg-gray-50 dark:bg-gray-900'} transition-colors text-gray-900 dark:text-white flex flex-col items-center p-6`}>
+      {backgrounds.length > 0 && backgrounds.map((bg, index) => (
+         <div 
+           key={bg}
+           className={`fixed inset-0 -z-10 bg-cover bg-center transition-opacity duration-[2000ms] ease-in-out ${index === bgIndex ? 'opacity-100' : 'opacity-0'}`}
+           style={{ backgroundImage: `url(${bg})` }}
+         />
+      ))}
+      <div className="w-full max-w-4xl flex justify-between items-center mb-6 z-10">
         <button onClick={() => navigate('/')} className="p-3 bg-white dark:bg-gray-800 rounded-full shadow hover:bg-gray-100 dark:hover:bg-gray-700">
           <ArrowLeft size={20} />
         </button>
