@@ -21,11 +21,24 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
   const [gameState, setGameState] = useState('idle');
   const [score, setScore] = useState(0);
   const [difficulty, setDifficulty] = useState('medium');
+  
+  // Game Configuration State
+  const [minSpeed, setMinSpeed] = useState(() => Number(localStorage.getItem('gameMinSpeed')) || 20);
+  const [maxSpeed, setMaxSpeed] = useState(() => Number(localStorage.getItem('gameMaxSpeed')) || 100);
+  const [minDepth, setMinDepth] = useState(() => Number(localStorage.getItem('gameMinDepth')) || 30);
+  const [maxDepth, setMaxDepth] = useState(() => Number(localStorage.getItem('gameMaxDepth')) || 100);
+
+  useEffect(() => {
+    localStorage.setItem('gameMinSpeed', minSpeed);
+    localStorage.setItem('gameMaxSpeed', maxSpeed);
+    localStorage.setItem('gameMinDepth', minDepth);
+    localStorage.setItem('gameMaxDepth', maxDepth);
+  }, [minSpeed, maxSpeed, minDepth, maxDepth]);
+
   const [items, setItems] = useState([]);
   
   const itemsRef = useRef([]);
-  const speedRef = useRef(20);
-  const depthRef = useRef(30);
+  const intensityRef = useRef(0); // Scales from 0 to 100
   const scoreRef = useRef(0);
   const startTimeRef = useRef(0);
   
@@ -41,6 +54,17 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
     hard: 3
   };
 
+  // Helper functions to map 0-100 intensity to user's min/max bounds
+  const getActualSpeed = (intensity) => Math.round(minSpeed + (maxSpeed - minSpeed) * (intensity / 100));
+  const getActualDepth = (intensity) => Math.round(minDepth + (maxDepth - minDepth) * (intensity / 100));
+
+  const applyHandyState = (intensity) => {
+    const s = getActualSpeed(intensity);
+    const d = getActualDepth(intensity);
+    setStrokeZone(handyKey, 100 - d, 100);
+    setSpeed(handyKey, s);
+  };
+
   const startGame = () => {
     if (!handyKey) {
       alert("Please set your Handy Connection Key in Settings first.");
@@ -51,15 +75,13 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
     setScore(0);
     setItems([]);
     itemsRef.current = [];
-    speedRef.current = 20;
-    depthRef.current = 30;
+    intensityRef.current = 0; // Start at baseline
     scoreRef.current = 0;
     trapEndTimeRef.current = 0;
     restEndTimeRef.current = 0;
     startTimeRef.current = performance.now();
     
-    setStrokeZone(handyKey, 100 - depthRef.current, 100);
-    setSpeed(handyKey, speedRef.current);
+    applyHandyState(intensityRef.current);
     
     setGameState('playing');
   };
@@ -88,12 +110,10 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
 
       // Spawning logic (only if not resting)
       if (!isResting) {
-        // As game progresses, spawn rate increases slightly
         const timeMultiplier = 1 + (gameTimeSeconds / 60); 
         const spawnChance = (0.015 * diffMult * timeMultiplier) * (deltaTime / 16.66);
         
         if (Math.random() < spawnChance) {
-          // Determine item type based on time
           let type = 'boobs';
           const r = Math.random();
           
@@ -124,24 +144,19 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
         let newSpeedY = item.speedY;
 
         if (item.type === 'small') {
-           // Small items from splitters have gravity and X velocity
            newX += item.speedX * (deltaTime / 1000);
            newY += item.speedY * (deltaTime / 1000);
            newSpeedY += 40 * (deltaTime / 1000); // Gravity
            
-           // Bounce off walls
-           let newSpeedX = item.speedX;
            if (newX < 2 || newX > 98) {
-               newSpeedX = -newSpeedX;
+               item.speedX = -item.speedX;
                newX = Math.max(2, Math.min(98, newX));
            }
-           return { ...item, x: newX, y: newY, speedX: newSpeedX, speedY: newSpeedY };
+           return { ...item, x: newX, y: newY, speedX: item.speedX, speedY: newSpeedY };
         } else {
-           // Normal falling
            newY += item.speedY * (deltaTime / 1000);
         }
 
-        // Only count boobs and splitters as penalties if missed
         if (newY > 110 && (item.type === 'boobs' || item.type === 'splitter' || item.type === 'small')) {
             missedCount++;
         }
@@ -151,30 +166,21 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
       
       // Penalty and Device Logic
       if (isTrapped) {
-         // Force max speed and depth while trapped
-         // We do this continuously or just let it ride, but to ensure it stays:
          if (time - lastPenaltyTime > 1000) {
-            setStrokeZone(handyKey, 0, 100);
-            setSpeed(handyKey, 100);
+            applyHandyState(100); // Force max intensity
             lastPenaltyTime = time;
          }
       } else if (isResting) {
-         // Keep it calm
          if (time - lastPenaltyTime > 1000) {
-            setStrokeZone(handyKey, 100 - Math.round(depthRef.current), 100);
-            setSpeed(handyKey, Math.round(speedRef.current));
+            applyHandyState(intensityRef.current);
             lastPenaltyTime = time;
          }
       } else {
-        // Normal penalty progression
         if (missedCount > 0 || itemsRef.current.filter(i => i.type !== 'trap').length > 5) {
           if (time - lastPenaltyTime > 1000) {
             const penalty = missedCount * 2 + (itemsRef.current.length > 5 ? 2 : 0);
-            speedRef.current = Math.min(100, speedRef.current + penalty * diffMult);
-            depthRef.current = Math.min(100, depthRef.current + penalty * diffMult);
-            
-            setStrokeZone(handyKey, 100 - Math.round(depthRef.current), 100);
-            setSpeed(handyKey, Math.round(speedRef.current));
+            intensityRef.current = Math.min(100, intensityRef.current + penalty * diffMult);
+            applyHandyState(intensityRef.current);
             
             lastPenaltyTime = time;
           }
@@ -183,8 +189,6 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
       
       setItems([...itemsRef.current]);
       
-      // Check lose condition
-      // Don't count traps towards the overwhelming limit, they are just obstacles
       const activeTargets = itemsRef.current.filter(i => i.type !== 'trap').length;
       if (activeTargets > 30) {
         stopGame();
@@ -196,48 +200,36 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
 
     animationFrameId = requestAnimationFrame(loop);
 
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [gameState, difficulty, handyKey]);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [gameState, difficulty, handyKey, minSpeed, maxSpeed, minDepth, maxDepth]);
 
   const handleItemClick = (e, item) => {
-    // Prevent default to avoid drag issues
     e.preventDefault();
     if (gameState !== 'playing') return;
     
     const now = performance.now();
-    
-    // Remove the clicked item
     itemsRef.current = itemsRef.current.filter(i => i.id !== item.id);
 
     if (item.type === 'trap') {
-      // TRAP! 3 seconds of max intensity
       trapEndTimeRef.current = now + 3000;
-      setStrokeZone(handyKey, 0, 100);
-      setSpeed(handyKey, 100);
-      // Optional screen shake effect could be added here
+      applyHandyState(100); // Instant max intensity burst
       return;
     }
 
     if (item.type === 'bomb') {
-      // BOMB! Clear screen, rest for 5 seconds, reset baseline
       itemsRef.current = [];
       scoreRef.current += 50;
       restEndTimeRef.current = now + 5000;
-      speedRef.current = 20;
-      depthRef.current = 30;
-      setStrokeZone(handyKey, 70, 100);
-      setSpeed(handyKey, 20);
+      intensityRef.current = 0; // Reset baseline
+      applyHandyState(0);
       setScore(scoreRef.current);
       return;
     }
 
     if (item.type === 'splitter') {
       scoreRef.current += 15;
-      // Spawn smaller items
       const gameTimeSeconds = (now - startTimeRef.current) / 1000;
-      const numSplits = gameTimeSeconds > 40 ? Math.floor(3 + Math.random() * 2) : 2; // 2 early, 3-4 later
+      const numSplits = gameTimeSeconds > 40 ? Math.floor(3 + Math.random() * 2) : 2; 
       
       for (let i = 0; i < numSplits; i++) {
          itemsRef.current.push({
@@ -245,32 +237,26 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
            type: 'small',
            x: item.x,
            y: item.y,
-           speedX: -20 + Math.random() * 40, // Burst outwards horizontally
-           speedY: -20 - Math.random() * 20  // Burst upwards initially
+           speedX: -20 + Math.random() * 40,
+           speedY: -20 - Math.random() * 20
          });
       }
     } else {
-      // Normal boobs or small boobs
       scoreRef.current += (item.type === 'small' ? 20 : 10);
     }
     
     setScore(scoreRef.current);
     
-    // Slowly recover speed and depth if clearing board (and not currently trapped/resting)
     if (itemsRef.current.filter(i => i.type !== 'trap').length === 0 && now > trapEndTimeRef.current && now > restEndTimeRef.current) {
-       speedRef.current = Math.max(20, speedRef.current - 5);
-       depthRef.current = Math.max(30, depthRef.current - 5);
-       setStrokeZone(handyKey, 100 - Math.round(depthRef.current), 100);
-       setSpeed(handyKey, Math.round(speedRef.current));
+       intensityRef.current = Math.max(0, intensityRef.current - 5);
+       applyHandyState(intensityRef.current);
     }
   };
 
   const renderItem = (item) => {
     switch (item.type) {
-      case 'boobs':
-        return <BoobsSVG className="w-16 h-16 drop-shadow-lg" />;
-      case 'small':
-        return <BoobsSVG className="w-8 h-8 drop-shadow-md" />;
+      case 'boobs': return <BoobsSVG className="w-16 h-16 drop-shadow-lg" />;
+      case 'small': return <BoobsSVG className="w-8 h-8 drop-shadow-md" />;
       case 'trap':
         return (
           <div className="w-14 h-14 bg-red-600 rounded-lg flex items-center justify-center border-4 border-red-800 shadow-[0_0_15px_rgba(220,38,38,0.8)] animate-pulse">
@@ -315,12 +301,10 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
 
       <div className="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 flex flex-col items-center flex-grow">
         {gameState === 'idle' && (
-          <div className="text-center my-auto">
+          <div className="text-center w-full max-w-md my-auto">
             <h2 className="text-2xl font-bold mb-4">Are you ready?</h2>
-            <p className="mb-4 text-gray-600 dark:text-gray-400 max-w-md mx-auto">
-              Click the items as they fall to maintain control. If you miss them, the device gets deeper and faster!
-            </p>
-            <div className="text-sm text-left bg-gray-100 dark:bg-gray-700 p-4 rounded-xl mb-6 mx-auto max-w-md">
+            
+            <div className="text-sm text-left bg-gray-100 dark:bg-gray-700 p-4 rounded-xl mb-6 shadow-inner border border-gray-200 dark:border-gray-600">
                <ul className="space-y-2">
                  <li className="flex items-center gap-2"><BoobsSVG className="w-6 h-6" /> <strong>Targets:</strong> Click them!</li>
                  <li className="flex items-center gap-2"><span className="text-lg">✂️</span> <strong>Splitters:</strong> Break into smaller targets.</li>
@@ -328,12 +312,40 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
                  <li className="flex items-center gap-2"><span className="text-red-500 font-bold bg-red-100 px-2 rounded">!</span> <strong>The Trap:</strong> DO NOT CLICK! Causes a 3s max-intensity burst.</li>
                </ul>
             </div>
+
+            <div className="bg-gray-100 dark:bg-gray-700 p-5 rounded-xl mb-6 shadow-inner border border-gray-200 dark:border-gray-600 text-left">
+              <h3 className="font-bold text-lg mb-4 border-b border-gray-300 dark:border-gray-500 pb-2">Device Limits</h3>
+              
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-xs font-semibold mb-2">Min Speed: {minSpeed}%</label>
+                    <input type="range" min="0" max={maxSpeed - 1} value={minSpeed} onChange={e => setMinSpeed(Number(e.target.value))} className="w-full accent-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-2">Max Speed: {maxSpeed}%</label>
+                    <input type="range" min={minSpeed + 1} max="100" value={maxSpeed} onChange={e => setMaxSpeed(Number(e.target.value))} className="w-full accent-red-500" />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-xs font-semibold mb-2">Min Depth: {minDepth}%</label>
+                    <input type="range" min="0" max={maxDepth - 1} value={minDepth} onChange={e => setMinDepth(Number(e.target.value))} className="w-full accent-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-2">Max Depth: {maxDepth}%</label>
+                    <input type="range" min={minDepth + 1} max="100" value={maxDepth} onChange={e => setMaxDepth(Number(e.target.value))} className="w-full accent-red-500" />
+                  </div>
+                </div>
+              </div>
+            </div>
             
-            <div className="mb-6 flex justify-center gap-4">
+            <div className="mb-8 flex justify-center gap-4">
               <label className="flex items-center gap-2 font-semibold">
                 Difficulty:
                 <select 
-                  className="bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-lg p-2 font-normal"
+                  className="bg-white dark:bg-gray-600 border border-gray-300 dark:border-gray-500 rounded-lg p-2 font-normal focus:ring focus:ring-red-300"
                   value={difficulty} 
                   onChange={e => setDifficulty(e.target.value)}
                 >
@@ -343,9 +355,10 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
                 </select>
               </label>
             </div>
+            
             <button 
               onClick={startGame}
-              className="bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold py-4 px-10 rounded-full shadow-lg hover:scale-105 transition-transform text-lg"
+              className="bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold py-4 px-12 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-transform text-lg"
             >
               Start Game
             </button>
@@ -365,8 +378,8 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
               )}
 
               <span className="text-red-500">
-                 Speed: {performance.now() < trapEndTimeRef.current ? 100 : Math.round(speedRef.current)}% | 
-                 Depth: {performance.now() < trapEndTimeRef.current ? 100 : Math.round(depthRef.current)}%
+                 Speed: {performance.now() < trapEndTimeRef.current ? maxSpeed : getActualSpeed(intensityRef.current)}% | 
+                 Depth: {performance.now() < trapEndTimeRef.current ? maxDepth : getActualDepth(intensityRef.current)}%
               </span>
             </div>
             
@@ -394,13 +407,13 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
 
         {gameState === 'gameover' && (
           <div className="text-center my-auto">
-            <h2 className="text-4xl font-extrabold mb-4 text-red-500">Game Over</h2>
-            <p className="text-2xl mb-8 text-gray-700 dark:text-gray-300">Final Score: <span className="font-bold">{score}</span></p>
+            <h2 className="text-5xl font-extrabold mb-4 text-red-500">Game Over</h2>
+            <p className="text-2xl mb-8 text-gray-700 dark:text-gray-300">Final Score: <span className="font-bold text-blue-500">{score}</span></p>
             <button 
-              onClick={startGame}
-              className="bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold py-4 px-10 rounded-full shadow-lg hover:scale-105 transition-transform text-lg"
+              onClick={() => setGameState('idle')}
+              className="bg-gradient-to-r from-red-500 to-orange-500 text-white font-bold py-4 px-10 rounded-full shadow-lg hover:scale-105 active:scale-95 transition-transform text-lg"
             >
-              Play Again
+              Configure & Play Again
             </button>
           </div>
         )}
