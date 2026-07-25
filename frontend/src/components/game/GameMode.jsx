@@ -219,7 +219,7 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
     if (item.type === 'bomb') {
       itemsRef.current = [];
       scoreRef.current += 50;
-      restEndTimeRef.current = now + 5000;
+      restEndTimeRef.current = now + 3000;
       intensityRef.current = 0; // Reset baseline
       applyHandyState(0);
       setScore(scoreRef.current);
@@ -308,7 +308,7 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
                <ul className="space-y-2">
                  <li className="flex items-center gap-2"><BoobsSVG className="w-6 h-6" /> <strong>Targets:</strong> Click them!</li>
                  <li className="flex items-center gap-2"><span className="text-lg">✂️</span> <strong>Splitters:</strong> Break into smaller targets.</li>
-                 <li className="flex items-center gap-2"><span className="text-lg">💣</span> <strong>The Bomb (Rare):</strong> Clears screen, 5s rest!</li>
+                 <li className="flex items-center gap-2"><span className="text-lg">💣</span> <strong>The Bomb (Rare):</strong> Clears screen, 3s rest!</li>
                  <li className="flex items-center gap-2"><span className="text-red-500 font-bold bg-red-100 px-2 rounded">!</span> <strong>The Trap:</strong> DO NOT CLICK! Causes a 3s max-intensity burst.</li>
                </ul>
             </div>
