@@ -45,6 +45,8 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
   // Special status effects
   const trapEndTimeRef = useRef(0);
   const restEndTimeRef = useRef(0);
+  const wasTrappedRef = useRef(false);
+  const wasRestingRef = useRef(false);
   
   const handyKey = settings?.handyKey;
 
@@ -79,6 +81,8 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
     scoreRef.current = 0;
     trapEndTimeRef.current = 0;
     restEndTimeRef.current = 0;
+    wasTrappedRef.current = false;
+    wasRestingRef.current = false;
     startTimeRef.current = performance.now();
     
     applyHandyState(intensityRef.current);
@@ -107,6 +111,21 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
       
       const isResting = time < restEndTimeRef.current;
       const isTrapped = time < trapEndTimeRef.current;
+
+      // Handle transitions back to normal intensity
+      if (!isTrapped && wasTrappedRef.current) {
+         applyHandyState(intensityRef.current);
+         lastPenaltyTime = time;
+         wasTrappedRef.current = false;
+      }
+      if (isTrapped) wasTrappedRef.current = true;
+
+      if (!isResting && wasRestingRef.current) {
+         applyHandyState(intensityRef.current);
+         lastPenaltyTime = time;
+         wasRestingRef.current = false;
+      }
+      if (isResting) wasRestingRef.current = true;
 
       // Spawning logic (only if not resting)
       if (!isResting) {
@@ -172,7 +191,7 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
          }
       } else if (isResting) {
          if (time - lastPenaltyTime > 1000) {
-            applyHandyState(intensityRef.current);
+            applyHandyState(0); // Force baseline during rest
             lastPenaltyTime = time;
          }
       } else {
@@ -220,8 +239,8 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
       itemsRef.current = [];
       scoreRef.current += 50;
       restEndTimeRef.current = now + 3000;
-      intensityRef.current = 0; // Reset baseline
-      applyHandyState(0);
+      intensityRef.current = intensityRef.current * 0.666; // Reduce to 2/3rds
+      applyHandyState(0); // Instantly drop to baseline for the rest period
       setScore(scoreRef.current);
       return;
     }
