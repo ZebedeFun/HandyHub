@@ -68,8 +68,9 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
       
       const diffMult = difficultyMultiplier[difficulty] || 2;
 
-      // Spawn new item (approx 2-4 items per second)
-      if (Math.random() < 0.02 * diffMult) {
+      // Spawn new item (approx 2-4 items per second, normalized by frame time)
+      const spawnChance = (0.02 * diffMult) * (deltaTime / 16.66);
+      if (Math.random() < spawnChance) {
         itemsRef.current.push({
           id: Math.random().toString(36).substr(2, 9),
           x: 5 + Math.random() * 90, // % left (keep away from edges)
@@ -106,7 +107,7 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
       setItems([...itemsRef.current]);
       
       // Check lose condition
-      if (itemsRef.current.length > 20) {
+      if (itemsRef.current.length > 30) {
         stopGame();
         return;
       }
@@ -197,7 +198,7 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
                 <div 
                   key={item.id}
                   onPointerDown={() => handleItemClick(item.id)}
-                  className="absolute w-12 h-12 bg-red-500 rounded-full cursor-pointer hover:bg-red-400 active:scale-90 transition-all shadow-lg flex items-center justify-center text-white text-xs font-bold"
+                  className="absolute w-12 h-12 bg-red-500 rounded-full cursor-pointer hover:bg-red-400 active:scale-90 transition-colors shadow-lg flex items-center justify-center text-white text-xs font-bold"
                   style={{ left: `${item.x}%`, top: `${item.y}%`, transform: 'translate(-50%, -50%)' }}
                 >
                   Click
