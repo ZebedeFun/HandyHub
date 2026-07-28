@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { setSpeed, setStrokeZone } from '../../services/handyService';
-import { Settings, Music, Loader2 } from 'lucide-react';
+import { Settings, Music, Loader2, Maximize, Minimize } from 'lucide-react';
 
 export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettings }) {
   const [connectionKey, setConnectionKey] = useState(localStorage.getItem('handySyncKey') || '');
@@ -22,6 +22,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   const [showHelp, setShowHelp] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isViewingMode, setIsViewingMode] = useState(false);
   
   // Refs for dynamic parameter reading in requestAnimationFrame
   const minSpeedRef = useRef(minSpeed);
@@ -256,7 +257,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
                 </label>
               </div>
             ) : (
-              <div className="relative w-full h-[60vh] bg-black group">
+              <div className={isViewingMode ? "fixed inset-0 z-50 bg-black flex flex-col items-center justify-center group" : "relative w-full h-[60vh] bg-black group"}>
                 {isAnalyzing && (
                   <div className="absolute inset-0 z-30 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center text-white">
                     <Loader2 size={48} className="animate-spin text-indigo-500 mb-4" />
@@ -272,6 +273,26 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
                   onPlay={isSyncing && !isAnalyzing ? null : startTracking}
                   onPause={stopTracking}
                 />
+                
+                {!isViewingMode && videoUrl && !isAnalyzing && (
+                  <button 
+                    onClick={() => setIsViewingMode(true)} 
+                    className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                    title="Enter Viewing Mode"
+                  >
+                    <Maximize size={20} />
+                  </button>
+                )}
+                
+                {isViewingMode && (
+                  <button 
+                    onClick={() => setIsViewingMode(false)} 
+                    className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                    title="Exit Viewing Mode"
+                  >
+                    <Minimize size={20} />
+                  </button>
+                )}
               </div>
             )}
             

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { ArrowLeft, Upload, Settings } from 'lucide-react';
+import { ArrowLeft, Upload, Settings, Maximize, Minimize } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import GenerationControls from './GenerationControls';
 import Heatmap from './Heatmap';
@@ -21,6 +21,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   
   const [funscript, setFunscript] = useState(null);
   const [syncToHandy, setSyncToHandy] = useState(false);
+  const [isViewingMode, setIsViewingMode] = useState(false);
 
   const syncScriptToHandy = async (scriptJson) => {
     if (!settings.handyKey || !scriptJson) return;
@@ -262,7 +263,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
           </div>
           
           {/* Middle: Video Player Area */}
-          <div className="flex-1 min-h-0 bg-black rounded-2xl overflow-hidden relative shadow-lg flex items-center justify-center border border-gray-800">
+          <div className={isViewingMode ? "fixed inset-0 z-50 bg-black flex flex-col items-center justify-center group" : "flex-1 min-h-0 bg-black rounded-2xl overflow-hidden relative shadow-lg flex items-center justify-center border border-gray-800 group"}>
             {!videoUrl ? (
               <div 
                 className={`text-center p-8 flex flex-col items-center w-full h-full justify-center transition-colors`}
@@ -297,6 +298,26 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                     isPlaying={isPlaying} 
                     videoRef={videoRef} 
                   />
+                )}
+                
+                {!isViewingMode && (
+                  <button 
+                    onClick={() => setIsViewingMode(true)} 
+                    className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                    title="Enter Viewing Mode"
+                  >
+                    <Maximize size={20} />
+                  </button>
+                )}
+                
+                {isViewingMode && (
+                  <button 
+                    onClick={() => setIsViewingMode(false)} 
+                    className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                    title="Exit Viewing Mode"
+                  >
+                    <Minimize size={20} />
+                  </button>
                 )}
               </>
             )}
