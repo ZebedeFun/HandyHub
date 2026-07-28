@@ -27,7 +27,7 @@ const interpolatePosition = (actions, timeMs) => {
   return start.pos + progress * (end.pos - start.pos);
 };
 
-export default function DeviceSimulator({ actions, isPlaying, videoRef }) {
+export default function DeviceSimulator({ actions, isPlaying, videoRef, className }) {
   const [currentPos, setCurrentPos] = useState(0);
   const requestRef = useRef();
 
@@ -61,7 +61,7 @@ export default function DeviceSimulator({ actions, isPlaying, videoRef }) {
   // CSS: bottom: `${currentPos}%` works perfectly for this visual.
 
   return (
-    <div className="absolute right-4 top-4 bottom-4 w-16 flex justify-center pointer-events-none drop-shadow-2xl opacity-90 transition-opacity">
+    <div className={className || "absolute right-4 top-4 bottom-4 w-16 flex justify-center pointer-events-none drop-shadow-2xl opacity-90 transition-opacity"}>
       {/* The Track (representing the device body) */}
       <div className="w-8 h-full bg-gray-800 rounded-full relative border-2 border-gray-700 shadow-inner overflow-hidden">
         

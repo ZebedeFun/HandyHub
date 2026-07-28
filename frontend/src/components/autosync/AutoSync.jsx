@@ -308,51 +308,57 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
                 </label>
               </div>
             ) : (
-              <div className={isViewingMode ? "flex-1 bg-black group relative" : "relative w-full h-[60vh] bg-black group"}>
-                {isAnalyzing && (
-                  <div className="absolute inset-0 z-30 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center text-white">
-                    <Loader2 size={48} className="animate-spin text-indigo-500 mb-4" />
-                    <h3 className="text-xl font-bold">Analyzing Audio Map...</h3>
-                    <p className="text-slate-300 mt-2">Processing video sound to map patterns.</p>
-                  </div>
-                )}
-                <video 
-                  ref={videoRef}
-                  src={videoUrl}
-                  controls
-                  className="w-full h-full object-contain"
-                  onPlay={handlePlay}
-                  onPause={handlePause}
-                  onSeeked={handleSeeked}
-                />
+              <div className={isViewingMode ? "flex-1 bg-black group flex flex-row" : "relative w-full h-[60vh] bg-black group flex flex-row"}>
                 
                 {generatedScript && (
-                  <DeviceSimulator 
-                    actions={generatedScript.actions}
-                    isPlaying={isPlaying}
-                    videoRef={videoRef}
+                  <div className="w-20 bg-gray-900 border-r border-gray-800 relative shrink-0">
+                    <DeviceSimulator 
+                      actions={generatedScript.actions}
+                      isPlaying={isPlaying}
+                      videoRef={videoRef}
+                      className="absolute inset-y-4 inset-x-0 flex justify-center pointer-events-none drop-shadow-2xl opacity-90"
+                    />
+                  </div>
+                )}
+                
+                <div className="flex-1 relative">
+                  {isAnalyzing && (
+                    <div className="absolute inset-0 z-30 bg-black/70 backdrop-blur-sm flex flex-col items-center justify-center text-white">
+                      <Loader2 size={48} className="animate-spin text-indigo-500 mb-4" />
+                      <h3 className="text-xl font-bold">Analyzing Audio Map...</h3>
+                      <p className="text-slate-300 mt-2">Processing video sound to map patterns.</p>
+                    </div>
+                  )}
+                  <video 
+                    ref={videoRef}
+                    src={videoUrl}
+                    controls
+                    className="w-full h-full object-contain"
+                    onPlay={handlePlay}
+                    onPause={handlePause}
+                    onSeeked={handleSeeked}
                   />
-                )}
-                
-                {!isViewingMode && !isAnalyzing && (
-                  <button 
-                    onClick={() => setIsViewingMode(true)} 
-                    className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
-                    title="Enter Viewing Mode"
-                  >
-                    <Maximize size={20} />
-                  </button>
-                )}
-                
-                {isViewingMode && (
-                  <button 
-                    onClick={() => setIsViewingMode(false)} 
-                    className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
-                    title="Exit Viewing Mode"
-                  >
-                    <Minimize size={20} />
-                  </button>
-                )}
+                  
+                  {!isViewingMode && !isAnalyzing && (
+                    <button 
+                      onClick={() => setIsViewingMode(true)} 
+                      className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                      title="Enter Viewing Mode"
+                    >
+                      <Maximize size={20} />
+                    </button>
+                  )}
+                  
+                  {isViewingMode && (
+                    <button 
+                      onClick={() => setIsViewingMode(false)} 
+                      className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                      title="Exit Viewing Mode"
+                    >
+                      <Minimize size={20} />
+                    </button>
+                  )}
+                </div>
               </div>
             )}
             

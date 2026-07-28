@@ -263,7 +263,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
           </div>
           
           {/* Middle: Video Player Area */}
-          <div className={isViewingMode ? "fixed inset-0 z-50 bg-black flex flex-col items-center justify-center group" : "flex-1 min-h-0 bg-black rounded-2xl overflow-hidden relative shadow-lg flex items-center justify-center border border-gray-800 group"}>
+          <div className={isViewingMode ? "fixed inset-0 z-50 bg-black flex flex-row group" : "flex-1 min-h-0 bg-black rounded-2xl overflow-hidden relative shadow-lg flex flex-row border border-gray-800 group"}>
             {!videoUrl ? (
               <div 
                 className={`text-center p-8 flex flex-col items-center w-full h-full justify-center transition-colors`}
@@ -281,44 +281,50 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               </div>
             ) : (
               <>
-                <video 
-                  ref={videoRef}
-                  src={videoUrl}
-                  controls
-                  className="w-full h-full object-contain"
-                  onLoadedMetadata={handleLoadedMetadata}
-                  onTimeUpdate={handleTimeUpdate}
-                  onPlay={handlePlay}
-                  onPause={handlePause}
-                  onSeeked={handleSeeked}
-                />
                 {funscript && (
-                  <DeviceSimulator 
-                    actions={funscript.actions} 
-                    isPlaying={isPlaying} 
-                    videoRef={videoRef} 
+                  <div className="w-20 bg-gray-900 border-r border-gray-800 relative shrink-0">
+                    <DeviceSimulator 
+                      actions={funscript.actions} 
+                      isPlaying={isPlaying} 
+                      videoRef={videoRef} 
+                      className="absolute inset-y-4 inset-x-0 flex justify-center pointer-events-none drop-shadow-2xl opacity-90"
+                    />
+                  </div>
+                )}
+                
+                <div className="flex-1 relative flex items-center justify-center">
+                  <video 
+                    ref={videoRef}
+                    src={videoUrl}
+                    controls
+                    className="w-full h-full object-contain"
+                    onLoadedMetadata={handleLoadedMetadata}
+                    onTimeUpdate={handleTimeUpdate}
+                    onPlay={handlePlay}
+                    onPause={handlePause}
+                    onSeeked={handleSeeked}
                   />
-                )}
-                
-                {!isViewingMode && (
-                  <button 
-                    onClick={() => setIsViewingMode(true)} 
-                    className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
-                    title="Enter Viewing Mode"
-                  >
-                    <Maximize size={20} />
-                  </button>
-                )}
-                
-                {isViewingMode && (
-                  <button 
-                    onClick={() => setIsViewingMode(false)} 
-                    className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
-                    title="Exit Viewing Mode"
-                  >
-                    <Minimize size={20} />
-                  </button>
-                )}
+                  
+                  {!isViewingMode && (
+                    <button 
+                      onClick={() => setIsViewingMode(true)} 
+                      className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                      title="Enter Viewing Mode"
+                    >
+                      <Maximize size={20} />
+                    </button>
+                  )}
+                  
+                  {isViewingMode && (
+                    <button 
+                      onClick={() => setIsViewingMode(false)} 
+                      className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                      title="Exit Viewing Mode"
+                    >
+                      <Minimize size={20} />
+                    </button>
+                  )}
+                </div>
               </>
             )}
           </div>
