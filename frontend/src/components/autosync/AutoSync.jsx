@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
 import { Settings, Music, Loader2, Maximize, Minimize, Activity } from 'lucide-react';
+import DeviceSimulator from '../scripter/DeviceSimulator';
 
 export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettings }) {
   const [videoFile, setVideoFile] = useState(null);
@@ -26,6 +27,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   const [isDragging, setIsDragging] = useState(false);
   const [isViewingMode, setIsViewingMode] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
   
   // Script Generation State
   const [generatedScript, setGeneratedScript] = useState(null);
@@ -190,6 +192,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
 
   // Video Handlers
   const handlePlay = async () => {
+    setIsPlaying(true);
     if (isSyncing && settings.handyKey && videoRef.current && generatedScript) {
       const offset = await getServerTimeOffset(settings.handyKey);
       const serverTime = Math.round(Date.now() + offset);
@@ -199,6 +202,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   };
 
   const handlePause = async () => {
+    setIsPlaying(false);
     if (isSyncing && settings.handyKey) {
       await hsspStop(settings.handyKey);
     }
@@ -321,6 +325,14 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
                   onPause={handlePause}
                   onSeeked={handleSeeked}
                 />
+                
+                {generatedScript && (
+                  <DeviceSimulator 
+                    actions={generatedScript.actions}
+                    isPlaying={isPlaying}
+                    videoRef={videoRef}
+                  />
+                )}
                 
                 {!isViewingMode && !isAnalyzing && (
                   <button 
