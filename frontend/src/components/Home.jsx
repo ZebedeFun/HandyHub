@@ -105,7 +105,7 @@ export default function Home({ isDarkMode, toggleTheme, openSettings }) {
           </div>
           <h2 className="text-2xl font-bold mb-3">Auto Sync</h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Real-time visual motion tracking that automatically matches device speed to the video.
+            Real-time audio beat matching that automatically syncs perfect strokes to the video's sound.
           </p>
         </button>
       </div>
