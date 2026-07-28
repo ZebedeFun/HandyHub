@@ -467,7 +467,7 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
             </button>
           </div>
         )}
-        )}
+        </div>
       </main>
     </div>
   );
