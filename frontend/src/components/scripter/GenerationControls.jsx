@@ -1,7 +1,7 @@
 import React from 'react';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap } from 'lucide-react';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2 } from 'lucide-react';
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript }) {
   const handleChange = (e) => {
     const { name, value, type } = e.target;
     
@@ -44,6 +44,20 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
           >
             <Play size={16} />
             Generate Complete Script
+          </button>
+          
+          <button 
+            onClick={onFixJitterWholeScript}
+            disabled={!canDownload}
+            title="Remove minor jitters from the entire script"
+            className={`py-2 px-4 text-sm font-bold rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 ${
+              canDownload 
+                ? 'bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/40 dark:hover:bg-blue-800/60 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-700/50' 
+                : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 cursor-not-allowed border border-transparent'
+            }`}
+          >
+            <Wand2 size={16} />
+            Fix All Jitters
           </button>
           
           <button 

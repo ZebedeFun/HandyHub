@@ -148,6 +148,7 @@ export default function Heatmap({ actions, durationMs, currentTimeMs, onRegenera
             <button onClick={() => onModifySelection(start, end, 'lower')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Lower</button>
             <button onClick={() => onModifySelection(start, end, 'longer')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Longer</button>
             <button onClick={() => onModifySelection(start, end, 'shorter')} className="text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded">Shorter</button>
+            <button onClick={() => onModifySelection(start, end, 'jitter')} className="text-[10px] font-semibold bg-blue-700 hover:bg-blue-600 text-gray-100 px-2 py-1 rounded ml-1">Fix Jitter</button>
           </div>
 
           <button 

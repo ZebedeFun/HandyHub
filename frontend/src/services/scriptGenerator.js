@@ -203,7 +203,49 @@ export function generatePartialScript(oldActions, startMs, endMs, params) {
 }
 
 
+export function removeJitter(oldActions, startMs, endMs, threshold = 5) {
+  if (!oldActions || oldActions.length < 3) return { actions: oldActions };
+
+  const start = startMs !== undefined ? startMs : 0;
+  const end = endMs !== undefined ? endMs : Infinity;
+  
+  let kept = [oldActions[0]];
+  
+  for (let i = 1; i < oldActions.length - 1; i++) {
+    const current = oldActions[i];
+    
+    if (current.at >= start && current.at <= end) {
+      const prev = kept[kept.length - 1];
+      let next = oldActions[i + 1];
+      
+      // Look ahead to find the next point that is significantly different to determine true direction
+      let j = i + 1;
+      while (j < oldActions.length - 1 && Math.abs(oldActions[j].pos - current.pos) < 1) {
+          j++;
+      }
+      next = oldActions[j];
+
+      const diffPrev = current.pos - prev.pos;
+      const diffNext = next.pos - current.pos;
+      
+      // If it's a reversal (or flat) and the movement from prev was very small
+      if (diffPrev * diffNext <= 0 && Math.abs(diffPrev) <= threshold) {
+         continue; // Skip it (remove the jitter)
+      }
+    }
+    
+    kept.push(current);
+  }
+  
+  kept.push(oldActions[oldActions.length - 1]);
+  return { actions: kept };
+}
+
 export function modifyPartialScript(oldActions, startMs, endMs, modifierType) {
+  if (modifierType === 'jitter') {
+    return removeJitter(oldActions, startMs, endMs, 5);
+  }
+
   let startIndex = -1;
   for (let i = oldActions.length - 1; i >= 0; i--) {
     if (oldActions[i].at <= startMs) { startIndex = i; break; }

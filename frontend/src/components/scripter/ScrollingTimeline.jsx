@@ -10,7 +10,7 @@ const getSpeedColor = (deltaPos, deltaMs) => {
   return '#ef4444'; // Red
 };
 
-export default function ScrollingTimeline({ actions, currentTimeMs, isPlaying, videoRef }) {
+export default function ScrollingTimeline({ actions, currentTimeMs, isPlaying, videoRef, onRemovePoint }) {
   const canvasRef = useRef(null);
   const requestRef = useRef();
   
@@ -165,13 +165,28 @@ export default function ScrollingTimeline({ actions, currentTimeMs, isPlaying, v
     };
   }, [isPlaying, actions, currentTimeMs, videoRef]);
 
+  const handleCanvasClick = (e) => {
+    if (!onRemovePoint || !actions || actions.length === 0) return;
+    
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    
+    const startTime = (videoRef?.current?.currentTime * 1000 || currentTimeMs) - windowMs / 2;
+    const clickTimeMs = startTime + (x / rect.width) * windowMs;
+    
+    onRemovePoint(clickTimeMs);
+  };
+
   return (
     <div className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg overflow-hidden relative shadow-inner">
       <canvas 
         ref={canvasRef} 
-        width={1200} 
+        width={1000} 
         height={128} 
-        className="w-full h-full block" 
+        className="w-full h-full block cursor-crosshair" 
+        onClick={handleCanvasClick}
+        title="Click to remove point (fix jitter)"
       />
       {/* Decorative gradient overlays for fade effect on edges */}
       <div className="absolute top-0 bottom-0 left-0 w-16 bg-gradient-to-r from-gray-900 to-transparent pointer-events-none"></div>

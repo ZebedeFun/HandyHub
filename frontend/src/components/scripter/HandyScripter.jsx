@@ -172,6 +172,33 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     setFunscript(newScript);
   };
 
+  const handleFixJitterWholeScript = () => {
+    if (!funscript || !funscript.actions || !durationMs) return;
+    const newScript = modifyPartialScript(funscript.actions, 0, durationMs, 'jitter');
+    setFunscript(newScript);
+  };
+
+  const handleRemovePoint = (timeMs) => {
+    if (!funscript || !funscript.actions) return;
+    
+    let nearestIdx = -1;
+    let minDiff = Infinity;
+    for (let i = 0; i < funscript.actions.length; i++) {
+       const diff = Math.abs(funscript.actions[i].at - timeMs);
+       if (diff < minDiff && diff < 1000) {
+          minDiff = diff;
+          nearestIdx = i;
+       }
+    }
+    
+    if (nearestIdx !== -1) {
+       if (nearestIdx === 0 || nearestIdx === funscript.actions.length - 1) return;
+       const newActions = [...funscript.actions];
+       newActions.splice(nearestIdx, 1);
+       setFunscript({ ...funscript, actions: newActions });
+    }
+  };
+
   // Download logic
   const handleDownload = () => {
     if (!funscript || !videoFile) return;
@@ -259,6 +286,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               onGenerate={handleGenerate}
               canDownload={!!funscript}
               onDownload={handleDownload}
+              onFixJitterWholeScript={handleFixJitterWholeScript}
             />
           </div>
           
@@ -338,6 +366,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                   currentTimeMs={currentTimeMs} 
                   isPlaying={isPlaying}
                   videoRef={videoRef}
+                  onRemovePoint={handleRemovePoint}
                 />
                 <div className="h-40">
                   <Heatmap 
