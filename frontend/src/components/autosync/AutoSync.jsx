@@ -3,7 +3,6 @@ import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../servic
 import { Settings, Music, Loader2, Maximize, Minimize, Activity } from 'lucide-react';
 
 export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettings }) {
-  const [connectionKey, setConnectionKey] = useState(localStorage.getItem('handySyncKey') || '');
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState('');
   
@@ -33,10 +32,6 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   
   const videoRef = useRef(null);
   const audioCtxRef = useRef(null);
-
-  useEffect(() => {
-    localStorage.setItem('handySyncKey', connectionKey);
-  }, [connectionKey]);
 
   // 1. Analyze Audio Buffer
   const analyzeAudio = async (file) => {
@@ -151,7 +146,7 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
 
   // 3. Upload Script to Handy when generatedScript changes AND we are syncing
   useEffect(() => {
-    if (!generatedScript || !isSyncing || !connectionKey) return;
+    if (!generatedScript || !isSyncing || !settings.handyKey) return;
     
     let isMounted = true;
     const uploadToHandy = async () => {
@@ -166,14 +161,14 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
         
         if (data.success && isMounted) {
           const fullUrl = `${window.location.protocol}//${window.location.host}${data.url}`;
-          await hsspSetup(connectionKey, fullUrl);
+          await hsspSetup(settings.handyKey, fullUrl);
           
           // Re-sync if video is currently playing
           if (videoRef.current && !videoRef.current.paused) {
-            const offset = await getServerTimeOffset(connectionKey);
+            const offset = await getServerTimeOffset(settings.handyKey);
             const serverTime = Math.round(Date.now() + offset);
             const startTime = Math.round(videoRef.current.currentTime * 1000);
-            await hsspPlay(connectionKey, serverTime, startTime);
+            await hsspPlay(settings.handyKey, serverTime, startTime);
           }
         }
       } catch (err) {
@@ -191,44 +186,43 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [generatedScript, isSyncing, connectionKey]);
+  }, [generatedScript, isSyncing, settings.handyKey]);
 
   // Video Handlers
   const handlePlay = async () => {
-    if (isSyncing && connectionKey && videoRef.current && generatedScript) {
-      const offset = await getServerTimeOffset(connectionKey);
+    if (isSyncing && settings.handyKey && videoRef.current && generatedScript) {
+      const offset = await getServerTimeOffset(settings.handyKey);
       const serverTime = Math.round(Date.now() + offset);
       const startTime = Math.round(videoRef.current.currentTime * 1000);
-      await hsspPlay(connectionKey, serverTime, startTime);
+      await hsspPlay(settings.handyKey, serverTime, startTime);
     }
   };
 
   const handlePause = async () => {
-    if (isSyncing && connectionKey) {
-      await hsspStop(connectionKey);
+    if (isSyncing && settings.handyKey) {
+      await hsspStop(settings.handyKey);
     }
   };
 
   const handleSeeked = async () => {
-    if (isSyncing && connectionKey && videoRef.current && !videoRef.current.paused && generatedScript) {
-      const offset = await getServerTimeOffset(connectionKey);
+    if (isSyncing && settings.handyKey && videoRef.current && !videoRef.current.paused && generatedScript) {
+      const offset = await getServerTimeOffset(settings.handyKey);
       const serverTime = Math.round(Date.now() + offset);
       const startTime = Math.round(videoRef.current.currentTime * 1000);
-      await hsspPlay(connectionKey, serverTime, startTime);
+      await hsspPlay(settings.handyKey, serverTime, startTime);
     }
   };
 
   const toggleSyncing = () => {
     if (isSyncing) {
       setIsSyncing(false);
-      hsspStop(connectionKey);
+      hsspStop(settings.handyKey);
     } else {
-      if (!connectionKey) {
-        alert("Please enter a Connection Key first.");
+      if (!settings.handyKey) {
+        alert("Please enter a Connection Key in the main Settings first.");
         return;
       }
       setIsSyncing(true);
-      // The useEffect will pick up the isSyncing state and upload the script
     }
   };
 
@@ -284,13 +278,6 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
             </span>
           </div>
           <div className="flex items-center gap-4">
-            <input 
-              type="text" 
-              placeholder="Handy Connection Key" 
-              value={connectionKey}
-              onChange={(e) => setConnectionKey(e.target.value)}
-              className="w-48 px-3 py-2 bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
             <button onClick={() => setShowHelp(true)} className="px-4 py-2 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 rounded-lg font-medium transition-colors text-sm">Help</button>
             <button onClick={toggleTheme} className="p-2 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg transition-colors" title="Toggle Theme">
               {isDarkMode ? '☀️' : '🌙'}
