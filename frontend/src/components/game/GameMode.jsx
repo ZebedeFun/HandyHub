@@ -323,7 +323,7 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
   };
 
   return (
-    <div className={`min-h-screen ${backgrounds.length > 0 ? 'bg-white/60 dark:bg-black/80 backdrop-blur-sm' : 'bg-gray-50 dark:bg-gray-900'} transition-colors text-gray-900 dark:text-white flex flex-col items-center p-6`}>
+    <div className={`flex flex-col min-h-screen ${backgrounds.length > 0 ? 'bg-white/60 dark:bg-black/80 backdrop-blur-sm' : 'bg-gray-50 dark:bg-gray-900'} transition-colors text-gray-900 dark:text-white`}>
       {backgrounds.length > 0 && backgrounds.map((bg, index) => (
          <div 
            key={bg}
@@ -331,24 +331,25 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
            style={{ backgroundImage: `url(${bg})` }}
          />
       ))}
-      <div className="w-full max-w-4xl flex justify-between items-center mb-6 z-10">
-        <button onClick={() => navigate('/')} className="p-3 bg-white dark:bg-gray-800 rounded-full shadow hover:bg-gray-100 dark:hover:bg-gray-700">
-          <ArrowLeft size={20} />
-        </button>
-        <h1 className="text-3xl font-bold bg-gradient-to-r from-red-500 to-orange-500 text-transparent bg-clip-text">
-          Game Mode
-        </h1>
-        <div className="flex gap-3">
-          <button onClick={toggleTheme} className="p-3 bg-white dark:bg-gray-800 rounded-full shadow hover:bg-gray-100 dark:hover:bg-gray-700">
+      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center z-10 shrink-0">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-600 dark:text-gray-300">
+            <ArrowLeft size={24} />
+          </button>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Game Mode</h1>
+        </div>
+        <div className="flex items-center gap-4">
+          <button onClick={toggleTheme} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-600 dark:text-gray-300">
             {isDarkMode ? '☀️' : '🌙'}
           </button>
-          <button onClick={openSettings} className="p-3 bg-white dark:bg-gray-800 rounded-full shadow hover:bg-gray-100 dark:hover:bg-gray-700">
+          <button onClick={openSettings} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-600 dark:text-gray-300">
             <Settings size={20} />
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 flex flex-col items-center flex-grow">
+      <main className="flex-1 flex flex-col items-center p-6">
+        <div className="w-full max-w-4xl bg-white dark:bg-gray-800 rounded-3xl shadow-xl p-6 flex flex-col items-center flex-grow">
         {gameState === 'idle' && (
           <div className="text-center w-full max-w-md my-auto">
             <h2 className="text-2xl font-bold mb-4">Are you ready?</h2>
@@ -466,7 +467,8 @@ export default function GameMode({ isDarkMode, toggleTheme, settings, openSettin
             </button>
           </div>
         )}
-      </div>
+        )}
+      </main>
     </div>
   );
 }
