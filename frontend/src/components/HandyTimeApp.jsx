@@ -40,12 +40,12 @@ export default function HandyTimeApp({ isDarkMode, toggleTheme, settings, openSe
 
   return (
     <div className="flex flex-col h-screen bg-gray-100 dark:bg-gray-900 transition-colors">
-      <header className="bg-white dark:bg-gray-800 shadow-sm dark:shadow-none border-b border-transparent dark:border-gray-700 p-4 flex justify-between items-center z-10 transition-colors">
-        <div className="flex items-center">
-          <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors mr-2">
-            <ArrowLeft size={20} className="text-gray-600 dark:text-gray-300" />
+      <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center z-10 shrink-0">
+        <div className="flex items-center gap-4">
+          <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-600 dark:text-gray-300">
+            <ArrowLeft size={24} />
           </button>
-          <h1 className="text-xl font-bold text-gray-800 dark:text-white tracking-tight">AI Partner</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">AI Partner</h1>
         </div>
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">

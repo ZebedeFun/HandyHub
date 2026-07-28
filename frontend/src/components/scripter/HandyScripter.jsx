@@ -218,9 +218,9 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center z-10 shrink-0">
         <div className="flex items-center gap-4">
           <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-600 dark:text-gray-300">
-            <ArrowLeft size={20} />
+            <ArrowLeft size={24} />
           </button>
-          <h1 className="text-xl font-bold tracking-tight">Handy Scripter</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Handy Scripter</h1>
         </div>
         <div className="flex items-center gap-4">
           <label className="flex items-center space-x-2 text-sm cursor-pointer border-r pr-4 border-gray-200 dark:border-gray-700">

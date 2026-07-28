@@ -528,10 +528,10 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
       {/* Header */}
       <header className="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700 p-4 flex justify-between items-center z-10 shrink-0">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors">
+          <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-600 dark:text-gray-300">
             <ArrowLeft size={24} />
           </button>
-          <h1 className="text-2xl font-bold tracking-tight">Handy Remote</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Handy Remote</h1>
         </div>
         
         <div className="flex items-center gap-4">
