@@ -210,8 +210,10 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                   </div>
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Kokoro Voice</label>
-                    <div className="flex gap-2">
-                      <select name="kokoroVoice" value={localSettings.kokoroVoice || 'af_bella'} onChange={handleChange} className="flex-1 border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
+                    <input type="text" name="kokoroVoice" value={localSettings.kokoroVoice || ''} onChange={(e) => setLocalSettings(prev => ({ ...prev, kokoroVoice: e.target.value }))} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition font-mono" placeholder="e.g. af_bella or af_bella(2)+af_sky(1)" />
+                    <div className="flex gap-2 mt-2">
+                      <select name="kokoroVoicePreset" value="" onChange={(e) => { if (e.target.value) setLocalSettings(prev => ({ ...prev, kokoroVoice: e.target.value })); }} className="flex-1 border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
+                        <option value="" disabled>Pick a preset voice...</option>
                         <option value="af_heart">American Female (af_heart) - A</option>
                         <option value="af_bella">American Female (af_bella) - A-</option>
                         <option value="af_nicole">American Female (af_nicole) - B-</option>
@@ -244,12 +246,13 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                       <button 
                         type="button" 
                         onClick={handleTestKokoro}
-                        className={`flex items-center justify-center px-4 rounded-lg font-bold transition-colors border ${isPlayingTest ? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-500' : 'bg-pink-100 text-pink-600 border-pink-500 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400 dark:border-pink-500'}`}
+                        className={`flex items-center justify-center px-4 rounded-lg font-bold transition-colors border ${isPlayingTest ? 'bg-red-100 text-red-600 border-red-500 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-500' : 'bg-pink-100 text-pink-600 border-pink-500 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400 dark:border-red-500'}`}
                       >
                         {isPlayingTest ? <Square size={18} className="mr-1" /> : <Volume2 size={18} className="mr-1" />}
                         {isPlayingTest ? 'Stop' : 'Test'}
                       </button>
                     </div>
+                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Type a custom voice string or pick a preset above. Mixed voices: <code className="bg-gray-100 dark:bg-gray-700 px-1 rounded">af_bella(2)+af_sky(1)</code></p>
                   </div>
                 </div>
               )}
