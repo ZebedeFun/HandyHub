@@ -1,7 +1,7 @@
 import React from 'react';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2 } from 'lucide-react';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2 } from 'lucide-react';
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo }) {
   const handleChange = (e) => {
     const { name, value, type } = e.target;
     
@@ -21,6 +21,21 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
       [name]: parsedValue
     }));
   };
+
+  // One-line explanation under each control. Shown always rather than on hover:
+  // the panel scrolls, so a popup would be clipped, and hover tooltips are
+  // useless on a tablet.
+  const Hint = ({ children, low, high }) => (
+    <div className="mt-1 leading-tight">
+      <p className="text-[10px] text-gray-500 dark:text-gray-400">{children}</p>
+      {(low || high) && (
+        <p className="text-[10px] text-gray-400 dark:text-gray-500 flex justify-between gap-2 mt-0.5">
+          <span>← {low}</span>
+          <span className="text-right">{high} →</span>
+        </p>
+      )}
+    </div>
+  );
 
   const SectionTitle = ({ icon: Icon, title }) => (
     <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-3 flex items-center gap-2">
@@ -46,7 +61,34 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
             Generate Complete Script
           </button>
           
-          <button 
+          <div className="flex items-center gap-1 mr-1">
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Undo (Ctrl+Z)"
+              className={`p-2 rounded-xl border transition-all ${
+                canUndo
+                  ? 'bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600'
+                  : 'bg-gray-50 dark:bg-gray-800/50 text-gray-300 dark:text-gray-600 cursor-not-allowed border-transparent'
+              }`}
+            >
+              <Undo2 size={16} />
+            </button>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Redo (Ctrl+Shift+Z)"
+              className={`p-2 rounded-xl border transition-all ${
+                canRedo
+                  ? 'bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600'
+                  : 'bg-gray-50 dark:bg-gray-800/50 text-gray-300 dark:text-gray-600 cursor-not-allowed border-transparent'
+              }`}
+            >
+              <Redo2 size={16} />
+            </button>
+          </div>
+
+          <button
             onClick={onFixJitterWholeScript}
             disabled={!canDownload}
             title="Remove minor jitters from the entire script"
@@ -94,6 +136,11 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 <option value="build">Build Over Time</option>
                 <option value="random">Random Phases</option>
               </select>
+              <Hint>
+                <b>Consistent</b> holds one intensity throughout. <b>Build Over Time</b> starts slow and shallow
+                and ramps up to your maximums by the end. <b>Random Phases</b> re-rolls speed, length and depth
+                every block for an unpredictable ride.
+              </Hint>
             </div>
 
             <div>
@@ -106,6 +153,9 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 value={params.blockSizeSec} onChange={handleChange}
                 className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
               />
+              <Hint low="Off: a new feel every stroke, restless" high="60s: long, settled passages">
+                How long the script keeps one feel before picking fresh settings.
+              </Hint>
             </div>
 
             {params.blockSizeSec > 0 && (
@@ -119,7 +169,9 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                   value={params.transitionSec} onChange={handleChange}
                   className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                 />
-                <p className="text-[10px] text-gray-500 mt-1 leading-tight">Smoothly morph into the new pattern over this duration when a block ends.</p>
+                <Hint low="Instant: abrupt gear-change" high="10s: slow, seamless drift">
+                  How long it takes to morph into the next block instead of switching abruptly.
+                </Hint>
               </div>
             )}
           </div>
@@ -132,14 +184,34 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
           <div className="space-y-4">
             <div>
               <div className="flex justify-between mb-1">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Base Speed</label>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Tempo</label>
+                <span className="text-xs font-mono text-blue-500">{params.strokesPerMin}/min</span>
+              </div>
+              <input
+                type="range" min="30" max="400" step="10" name="strokesPerMin"
+                value={params.strokesPerMin} onChange={handleChange}
+                className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              />
+              <Hint low="30/min: long, slow strokes" high="400/min: rapid pumping">
+                Direction changes per minute. Sets the rhythm on its own, so changing stroke length no longer
+                changes the pace.
+              </Hint>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Max Speed Limit</label>
                 <span className="text-xs font-mono text-blue-500">{params.baseSpeed}</span>
               </div>
-              <input 
-                type="range" min="1" max="10" name="baseSpeed" 
+              <input
+                type="range" min="1" max="10" name="baseSpeed"
                 value={params.baseSpeed} onChange={handleChange}
                 className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
               />
+              <Hint low="1: gentle; long strokes stretch out" high="10: full device speed">
+                A ceiling on carriage speed, not the pace itself. If a long stroke cannot be finished in time,
+                the tempo eases off to respect it.
+              </Hint>
             </div>
 
             <div className="flex gap-4">
@@ -153,6 +225,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                   value={params.minStrokeLength} onChange={handleChange}
                   className="w-full accent-purple-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                 />
+                <Hint low="5%: allows tiny teasing flicks" high="100%: never shorter than a full stroke" />
               </div>
               <div className="flex-1">
                 <div className="flex justify-between mb-1">
@@ -164,6 +237,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                   value={params.maxStrokeLength} onChange={handleChange}
                   className="w-full accent-purple-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                 />
+                <Hint low="Caps how long a stroke may get" high="100%: full-range strokes allowed" />
               </div>
             </div>
 
@@ -177,6 +251,9 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 value={params.randomness} onChange={handleChange}
                 className="w-full accent-emerald-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
               />
+              <Hint low="0: metronome-steady" high="10: constantly shifting rhythm">
+                Jitters tempo, stroke length and speed away from their set values.
+              </Hint>
             </div>
           </div>
         </div>
@@ -195,6 +272,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                   className="w-full accent-gray-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                 />
                 <span className="text-[10px] text-gray-500 mt-1 block text-right">{params.minStroke}%</span>
+                <Hint>Lowest point the sleeve reaches. Raise it to keep strokes up off the base.</Hint>
               </div>
               <div className="flex-1">
                 <span className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Max (Top)</span>
@@ -204,6 +282,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                   className="w-full accent-gray-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                 />
                 <span className="text-[10px] text-gray-500 mt-1 block text-right">{params.maxStroke}%</span>
+                <Hint>Highest point it reaches. Narrowing this window shortens every stroke.</Hint>
               </div>
             </div>
 
@@ -219,7 +298,10 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 value={params.cooldownSec} onChange={handleChange}
                 className="w-full accent-cyan-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer mt-1"
               />
-              <p className="text-[10px] text-gray-500 mt-1 leading-tight">Drops speed and intensity to minimum for the final {params.cooldownSec > 0 ? params.cooldownSec : 'N'} seconds of the video.</p>
+              <Hint low="None: ends at full intensity" high="300s: long, gradual wind-down">
+                Eases both tempo and stroke length down to a gentle finish over the final{' '}
+                {params.cooldownSec > 0 ? params.cooldownSec : 'N'} seconds.
+              </Hint>
             </div>
           </div>
         </div>

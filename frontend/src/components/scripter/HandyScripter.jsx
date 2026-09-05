@@ -19,7 +19,51 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const [currentTimeMs, setCurrentTimeMs] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   
-  const [funscript, setFunscript] = useState(null);
+  // Undo/redo. Every edit here (regenerate a range, nudge it faster, strip
+  // jitter, delete a point) is destructive and can undo a lot of fiddling, so
+  // each mutation goes through commitFunscript.
+  //
+  // past/present/future live in ONE state object on purpose: driving three
+  // separate states meant calling setState from inside another state's updater,
+  // which React is free to invoke more than once, and the stacks desynced.
+  const MAX_HISTORY = 50;
+  const [history, setHistory] = useState({ past: [], present: null, future: [] });
+  const funscript = history.present;
+
+  const commitFunscript = (next) => setHistory(h => ({
+    past: [...h.past, h.present].slice(-MAX_HISTORY),
+    present: next,
+    future: [],
+  }));
+
+  // Starting over (a new video) drops the history rather than adding to it.
+  const resetFunscript = (next) => setHistory({ past: [], present: next, future: [] });
+
+  const undo = () => setHistory(h => h.past.length === 0 ? h : ({
+    past: h.past.slice(0, -1),
+    present: h.past[h.past.length - 1],
+    future: [h.present, ...h.future],
+  }));
+
+  const redo = () => setHistory(h => h.future.length === 0 ? h : ({
+    past: [...h.past, h.present].slice(-MAX_HISTORY),
+    present: h.future[0],
+    future: h.future.slice(1),
+  }));
+
+  useEffect(() => {
+    const onKey = (e) => {
+      // Don't hijack typing in a field.
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.key.toLowerCase() !== 'z') return;
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
   const [syncToHandy, setSyncToHandy] = useState(false);
   const [isViewingMode, setIsViewingMode] = useState(false);
 
@@ -49,6 +93,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   
   const [params, setParams] = useState({
     baseSpeed: 5,
+    strokesPerMin: 200,
     minStrokeLength: 10,
     maxStrokeLength: 100,
     randomness: 3,
@@ -66,7 +111,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     if (file) {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
-      setFunscript(null); // clear old script
+      resetFunscript(null); // clear old script
     }
   };
 
@@ -96,7 +141,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
         try {
           const json = JSON.parse(event.target.result);
           if (json.actions) {
-             setFunscript(json);
+             commitFunscript(json);
              if (!videoUrl && json.actions.length > 0) {
                setDurationMs(json.actions[json.actions.length - 1].at + 1000);
              }
@@ -157,25 +202,25 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
       return;
     }
     const script = generateProceduralScript(durationMs, params);
-    setFunscript(script);
+    commitFunscript(script);
   };
 
   const handleRegenerateSelection = (startMs, endMs) => {
     if (!funscript || !funscript.actions) return;
     const newScript = generatePartialScript(funscript.actions, startMs, endMs, params);
-    setFunscript(newScript);
+    commitFunscript(newScript);
   };
 
   const handleModifySelection = (startMs, endMs, type) => {
     if (!funscript || !funscript.actions) return;
     const newScript = modifyPartialScript(funscript.actions, startMs, endMs, type);
-    setFunscript(newScript);
+    commitFunscript(newScript);
   };
 
   const handleFixJitterWholeScript = () => {
     if (!funscript || !funscript.actions || !durationMs) return;
     const newScript = modifyPartialScript(funscript.actions, 0, durationMs, 'jitter');
-    setFunscript(newScript);
+    commitFunscript(newScript);
   };
 
   const handleRemovePoint = (timeMs) => {
@@ -195,7 +240,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
        if (nearestIdx === 0 || nearestIdx === funscript.actions.length - 1) return;
        const newActions = [...funscript.actions];
        newActions.splice(nearestIdx, 1);
-       setFunscript({ ...funscript, actions: newActions });
+       commitFunscript({ ...funscript, actions: newActions });
     }
   };
 
@@ -287,6 +332,10 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               canDownload={!!funscript}
               onDownload={handleDownload}
               onFixJitterWholeScript={handleFixJitterWholeScript}
+              onUndo={undo}
+              onRedo={redo}
+              canUndo={history.past.length > 0}
+              canRedo={history.future.length > 0}
             />
           </div>
           
