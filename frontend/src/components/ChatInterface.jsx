@@ -17,6 +17,49 @@ const PERSONAS = [
 // Maximum number of in-flight TTS requests to avoid overwhelming Kokoro
 const MAX_CONCURRENT_TTS = 3;
 
+// Splits an SSE byte stream into complete `data:` payloads.
+// Network chunks do not respect line boundaries: a single `data: {...}` line is
+// regularly delivered in two pieces. Parsing each chunk on its own therefore
+// drops whichever line straddled the boundary, silently losing words and
+// [HANDY_...] tags. Carrying the trailing partial line over to the next read is
+// what makes the stream lossless.
+function createSSEParser() {
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+
+  const toPayload = (line) => {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('data:')) return null;
+    return trimmed.slice(5).trim();
+  };
+
+  return {
+    // Complete payloads contained in this chunk (the partial tail is retained).
+    push(value) {
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      return lines.map(toPayload).filter(Boolean);
+    },
+    // Whatever complete payload is left once the stream ends.
+    flush() {
+      const rest = buffer;
+      buffer = '';
+      const payload = toPayload(rest);
+      return payload ? [payload] : [];
+    },
+  };
+}
+
+// Pulls the incremental text out of one OpenAI-style SSE payload.
+function deltaFromPayload(payload) {
+  try {
+    return JSON.parse(payload).choices[0]?.delta?.content || '';
+  } catch (e) {
+    return '';
+  }
+}
+
 export default function ChatInterface({ settings }) {
   const [messages, setMessages] = useState([]);
   const [isActive, setIsActive] = useState(false);
@@ -56,6 +99,10 @@ export default function ChatInterface({ settings }) {
   
   const audioQueueRef = useRef([]);
   const isProcessingQueueRef = useRef(false);
+  // Aborts the in-flight /api/chat stream. Clearing isStreamingRef alone only
+  // unlocks a second generateNextScene while the first keeps writing into the
+  // same message, so the fetch itself has to be cancelled.
+  const streamAbortRef = useRef(null);
   // Records the messages[] index of the scene currently being streamed into
   const nextMsgIdxRef = useRef(0);
 
@@ -176,17 +223,20 @@ export default function ChatInterface({ settings }) {
         if (!res.body) throw new Error('No response body');
 
         const reader = res.body.getReader();
-        const decoder = new TextDecoder('utf-8');
+        const sse = createSSEParser();
         let out = '';
-        while (true) {
+        let finished = false;
+        while (!finished) {
           const { done, value } = await reader.read();
           if (done) break;
-          for (const line of decoder.decode(value, { stream: true }).split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            const payload = line.slice(6).trim();
-            if (payload === '[DONE]') { reader.cancel(); break; }
-            try { out += JSON.parse(payload).choices[0]?.delta?.content || ''; } catch (_) {}
+          for (const payload of sse.push(value)) {
+            if (payload === '[DONE]') { finished = true; break; }
+            out += deltaFromPayload(payload);
           }
+        }
+        if (finished) reader.cancel();
+        for (const payload of sse.flush()) {
+          if (payload !== '[DONE]') out += deltaFromPayload(payload);
         }
         setCustomPersonaPrompt(out.trim());
         if (!customPersonaName) {
@@ -264,7 +314,15 @@ export default function ChatInterface({ settings }) {
 
   const emergencyStop = useCallback(() => {
     setIsActive(false);
+    isActiveRef.current = false;
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
+
+    // 0. Cancel any scene still streaming from the LLM
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
+    isStreamingRef.current = false;
 
     // 1. Clear queue
     audioQueueRef.current = [];
@@ -324,6 +382,12 @@ export default function ChatInterface({ settings }) {
       }
     }
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
+    // Cancel the scene in flight before unlocking, or it keeps streaming into
+    // the same message alongside the climax scene we are about to start.
+    if (streamAbortRef.current) {
+      streamAbortRef.current.abort();
+      streamAbortRef.current = null;
+    }
     isStreamingRef.current = false;
 
     const injectPreCache = (cached, followUpPrompt) => {
@@ -417,17 +481,20 @@ export default function ChatInterface({ settings }) {
     const streamToText = async (response) => {
       if (!response.body) return '';
       const reader  = response.body.getReader();
-      const decoder = new TextDecoder('utf-8');
+      const sse = createSSEParser();
       let out = '';
-      while (true) {
+      let finished = false;
+      while (!finished) {
         const { done, value } = await reader.read();
         if (done) break;
-        for (const line of decoder.decode(value, { stream: true }).split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const payload = line.slice(6).trim();
-          if (payload === '[DONE]') { reader.cancel(); break; }
-          try { out += JSON.parse(payload).choices[0]?.delta?.content || ''; } catch (_) {}
+        for (const payload of sse.push(value)) {
+          if (payload === '[DONE]') { finished = true; break; }
+          out += deltaFromPayload(payload);
         }
+      }
+      if (finished) reader.cancel();
+      for (const payload of sse.flush()) {
+        if (payload !== '[DONE]') out += deltaFromPayload(payload);
       }
       return out.replace(/\[HANDY_(SPEED|STROKE):\s*\d+\s*\]/g, '').trim();
     };
@@ -715,6 +782,9 @@ export default function ChatInterface({ settings }) {
     if (loopTimerRef.current) clearTimeout(loopTimerRef.current);
     isStreamingRef.current = true;
 
+    const abortController = new AbortController();
+    streamAbortRef.current = abortController;
+
     if (!isFirst && !overridePrompt) {
         // Short breath between scenes — generation is already started early by processAudioQueue
         // so by the time this 400ms elapses, next sentences are usually already buffered.
@@ -748,7 +818,10 @@ export default function ChatInterface({ settings }) {
     setMessages(prev => [...prev, { role: 'assistant', text: '' }]);
     
     try {
-        const basePrompt = settings.systemPrompt.replace(/\[CHARACTER\]/g, settings.characterDescription).replace(/\[NAME\]/g, settings.characterName || 'Samantha');
+        // Read through the ref: this call is often made from a queue callback
+        // captured several renders ago, so the `settings` prop is stale there.
+        const s = settingsRef.current;
+        const basePrompt = s.systemPrompt.replace(/\[CHARACTER\]/g, s.characterDescription).replace(/\[NAME\]/g, s.characterName || 'Samantha');
         const placementInstruction = "CRITICAL: You must place any [HANDY_...] tags AT THE VERY START of the sentence they apply to, or inline just before the action word. NEVER put tags at the end of a sentence.\nExample: '[HANDY_SPEED:80] Let's go much faster.'";
         const finalSystemPrompt = `IMPORTANT CURRENT MOOD / ROLE: ${currentPersonaPrompt}\n\n${basePrompt}\n\n${placementInstruction}`;
 
@@ -757,19 +830,20 @@ export default function ChatInterface({ settings }) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 messages: apiMessages,
-                apiKey: settings.llmApiKey,
-                llmUrl: settings.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
-                llmModel: settings.llmModel || 'mistralai/mistral-7b-instruct:free',
-                llmTemperature: parseFloat(settings.llmTemperature) || 0.7,
+                apiKey: s.llmApiKey,
+                llmUrl: s.llmUrl || 'https://openrouter.ai/api/v1/chat/completions',
+                llmModel: s.llmModel || 'mistralai/mistral-7b-instruct:free',
+                llmTemperature: parseFloat(s.llmTemperature) || 0.7,
                 systemPrompt: finalSystemPrompt
-            })
+            }),
+            signal: abortController.signal
         });
 
         if (!response.body) throw new Error('No response body');
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
-        
+        const sse = createSSEParser();
+
         let streamBuffer = '';
         let ttsBuffer = '';
         let textToDisplay = '';
@@ -784,128 +858,127 @@ export default function ChatInterface({ settings }) {
                 break;
             }
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
-            
-            for (const line of lines) {
-                if (line.trim() === '' || line.trim() === 'data: [DONE]') continue;
-                if (line.startsWith('data: ')) {
-                    try {
-                        const parsed = JSON.parse(line.slice(6));
-                        const delta = parsed.choices[0]?.delta?.content || '';
-                        streamBuffer += delta;
+            for (const payload of sse.push(value)) {
+                if (payload === '[DONE]') continue;
+                    const delta = deltaFromPayload(payload);
+                    streamBuffer += delta;
 
-                        let progress = true;
-                        while (progress) {
-                            progress = false;
+                    let progress = true;
+                    while (progress) {
+                        progress = false;
+                        
+                        const bracketIndex = streamBuffer.indexOf('[');
+                        if (bracketIndex === -1) {
+                            ttsBuffer += streamBuffer;
+                            textToDisplay += streamBuffer;
+                            streamBuffer = '';
+                            break;
+                        }
+                        
+                        if (bracketIndex > 0) {
+                            const textBeforeTag = streamBuffer.substring(0, bracketIndex);
+                            ttsBuffer += textBeforeTag;
+                            textToDisplay += textBeforeTag;
+                            streamBuffer = streamBuffer.substring(bracketIndex);
+                            progress = true;
+                            continue;
+                        }
+                        
+                        const closeBracketIndex = streamBuffer.indexOf(']');
+                        if (closeBracketIndex !== -1) {
+                            const potentialTag = streamBuffer.substring(0, closeBracketIndex + 1);
+                            const match = /^\[HANDY_(SPEED|STROKE):\s*(\d+)\s*\]$/.exec(potentialTag);
                             
-                            const bracketIndex = streamBuffer.indexOf('[');
-                            if (bracketIndex === -1) {
-                                ttsBuffer += streamBuffer;
-                                textToDisplay += streamBuffer;
-                                streamBuffer = '';
-                                break;
-                            }
-                            
-                            if (bracketIndex > 0) {
-                                const textBeforeTag = streamBuffer.substring(0, bracketIndex);
-                                ttsBuffer += textBeforeTag;
-                                textToDisplay += textBeforeTag;
-                                streamBuffer = streamBuffer.substring(bracketIndex);
-                                progress = true;
-                                continue;
-                            }
-                            
-                            const closeBracketIndex = streamBuffer.indexOf(']');
-                            if (closeBracketIndex !== -1) {
-                                const potentialTag = streamBuffer.substring(0, closeBracketIndex + 1);
-                                const match = /^\[HANDY_(SPEED|STROKE):\s*(\d+)\s*\]$/.exec(potentialTag);
-                                
-                                if (match) {
-                                    const type = match[1];
-                                    const val = parseInt(match[2], 10);
+                            if (match) {
+                                const type = match[1];
+                                const val = parseInt(match[2], 10);
 
-                                    // In tagChange mode, flush accumulated text with OLD actions
-                                    // before the tag change takes effect
-                                    const cmode = settingsRef.current.ttsChunking || 'sentence';
-                                    if (cmode === 'tagChange' && currentActions.length > 0 && ttsBuffer.trim().length > 0) {
-                                        pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
-                                        ttsBuffer = '';
-                                    }
-
-                                    currentActions.push({ type, val });
-                                    
-                                    streamBuffer = streamBuffer.substring(closeBracketIndex + 1);
-                                    progress = true;
-                                } else {
-                                    // Swallow unrecognized bracket tags
-                                    streamBuffer = streamBuffer.substring(closeBracketIndex + 1);
-                                    progress = true;
+                                // In tagChange mode, flush accumulated text with OLD actions
+                                // before the tag change takes effect
+                                const cmode = settingsRef.current.ttsChunking || 'sentence';
+                                if (cmode === 'tagChange' && currentActions.length > 0 && ttsBuffer.trim().length > 0) {
+                                    pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
+                                    ttsBuffer = '';
                                 }
+
+                                currentActions.push({ type, val });
+                                
+                                streamBuffer = streamBuffer.substring(closeBracketIndex + 1);
+                                progress = true;
+                            } else {
+                                // Swallow unrecognized bracket tags
+                                streamBuffer = streamBuffer.substring(closeBracketIndex + 1);
+                                progress = true;
                             }
                         }
+                    }
 
-                        // Drain chunks from the ttsBuffer according to the active chunking strategy
-                        const chunkingMode = settingsRef.current.ttsChunking || 'sentence';
+                    // Drain chunks from the ttsBuffer according to the active chunking strategy
+                    const chunkingMode = settingsRef.current.ttsChunking || 'sentence';
 
-                        if (chunkingMode === 'sentence') {
-                          // Per-sentence: split at punctuation boundaries
-                          let bm;
-                          while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
-                            const boundaryIndex = bm.index + bm[1].length;
-                            const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
-                            ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
-                            if (sentence.length > 0) {
-                              pushToAudioQueue({ text: sentence, actions: [...currentActions] });
-                              currentActions = [];
-                            }
-                          }
-                        } else if (chunkingMode === 'tagChange') {
-                          // Per-tag-change: accumulate text; only push when actions change
-                          // (The tag parsing above already updates currentActions.
-                          //  We push accumulated text when a new tag group is detected.)
-                          // The pushing happens in the bracket parsing loop above:
-                          // when we find a HANDY tag, we push any accumulated ttsBuffer
-                          // before the tag, then start a new accumulation for the post-tag text.
-                          // BUT: we also want to drain sentence boundaries within each tag group
-                          // for better streaming responsiveness — so we still split on sentences
-                          // but only reset actions when a tag change occurs.
-                          let bm;
-                          while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
-                            const boundaryIndex = bm.index + bm[1].length;
-                            const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
-                            ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
-                            if (sentence.length > 0) {
-                              pushToAudioQueue({ text: sentence, actions: [...currentActions] });
-                              // Keep currentActions — don't reset for tagChange mode
-                            }
-                          }
-                        } else if (chunkingMode === 'paragraph') {
-                          // Per-paragraph: split on newline boundaries.
-                          // LLMs typically separate paragraphs with one or more newlines.
-                          let bm;
-                          while ((bm = ttsBuffer.match(/\n/))) {
-                            const boundaryIndex = bm.index + bm[0].length;
-                            const paragraph = ttsBuffer.substring(0, bm.index).trim();
-                            ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
-                            if (paragraph.length > 0) {
-                              pushToAudioQueue({ text: paragraph, actions: [...currentActions] });
-                              currentActions = [];
-                            }
-                          }
+                    if (chunkingMode === 'sentence') {
+                      // Per-sentence: split at punctuation boundaries
+                      let bm;
+                      while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
+                        const boundaryIndex = bm.index + bm[1].length;
+                        const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
+                        ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
+                        if (sentence.length > 0) {
+                          pushToAudioQueue({ text: sentence, actions: [...currentActions] });
+                          currentActions = [];
                         }
+                      }
+                    } else if (chunkingMode === 'tagChange') {
+                      // Per-tag-change: accumulate text; only push when actions change
+                      // (The tag parsing above already updates currentActions.
+                      //  We push accumulated text when a new tag group is detected.)
+                      // The pushing happens in the bracket parsing loop above:
+                      // when we find a HANDY tag, we push any accumulated ttsBuffer
+                      // before the tag, then start a new accumulation for the post-tag text.
+                      // BUT: we also want to drain sentence boundaries within each tag group
+                      // for better streaming responsiveness — so we still split on sentences
+                      // but only reset actions when a tag change occurs.
+                      let bm;
+                      while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
+                        const boundaryIndex = bm.index + bm[1].length;
+                        const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
+                        ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
+                        if (sentence.length > 0) {
+                          pushToAudioQueue({ text: sentence, actions: [...currentActions] });
+                          // Keep currentActions — don't reset for tagChange mode
+                        }
+                      }
+                    } else if (chunkingMode === 'paragraph') {
+                      // Per-paragraph: split on newline boundaries.
+                      // LLMs typically separate paragraphs with one or more newlines.
+                      let bm;
+                      while ((bm = ttsBuffer.match(/\n/))) {
+                        const boundaryIndex = bm.index + bm[0].length;
+                        const paragraph = ttsBuffer.substring(0, bm.index).trim();
+                        ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
+                        if (paragraph.length > 0) {
+                          pushToAudioQueue({ text: paragraph, actions: [...currentActions] });
+                          currentActions = [];
+                        }
+                      }
+                    }
 
-                        setMessages(prev => {
-                            const updated = [...prev];
-                            updated[updated.length - 1].text = textToDisplay;
-                            return updated;
-                        });
+                    setMessages(prev => {
+                        const updated = [...prev];
+                        updated[updated.length - 1].text = textToDisplay;
+                        return updated;
+                    });
 
-                    } catch (e) {}
-                }
             }
         }
-        
+
+        // A stream that ends without a trailing newline leaves one complete
+        // payload in the parser. Fold it into streamBuffer so the tail handling
+        // below picks it up rather than dropping it.
+        for (const payload of sse.flush()) {
+            if (payload !== '[DONE]') streamBuffer += deltaFromPayload(payload);
+        }
+
         const chunkingMode = settingsRef.current.ttsChunking || 'sentence';
 
         if (isActiveRef.current && streamBuffer) {
@@ -932,9 +1005,14 @@ export default function ChatInterface({ settings }) {
         }
         
     } catch (err) {
-        console.error("Chat Error:", err);
+        // An abort is a deliberate interruption (STOP / Climax), not a failure.
+        if (err.name !== 'AbortError') console.error("Chat Error:", err);
     } finally {
-        isStreamingRef.current = false;
+        // Only release the lock if a newer scene has not already taken over.
+        if (streamAbortRef.current === abortController) {
+            streamAbortRef.current = null;
+            isStreamingRef.current = false;
+        }
         sceneCountRef.current += 1;
         // Pre-fetch button content after scene 2, then refresh every 3 scenes so context stays fresh
         if (isActiveRef.current && sceneCountRef.current >= 2 && (sceneCountRef.current - 2) % 3 === 0) {

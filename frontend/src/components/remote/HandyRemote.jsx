@@ -5,6 +5,10 @@ import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone
 import XYPad from './XYPad';
 import RemoteSimulator from './RemoteSimulator';
 
+// Minimum gap between device API calls. The rhythm presets tick at this same
+// interval, so the trailing edge in sendToDevice is what keeps them landing.
+const THROTTLE_MS = 250;
+
 export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSettings }) {
   const navigate = useNavigate();
   const [deviceStatus, setDeviceStatus] = useState('Disconnected');
@@ -28,6 +32,15 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
 
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const recognitionRef = useRef(null);
+  // What the microphone last heard and what came of it. Without this every
+  // voice failure is invisible — the button just sits there looking active.
+  const [voiceStatus, setVoiceStatus] = useState(null);
+  // onresult is installed once per toggle, so it must reach the handler through
+  // a ref or it keeps calling the version captured at that render (with the
+  // settings that were current then).
+  const handleVoiceCommandRef = useRef(null);
+  // Fires if the recognizer never actually starts capturing (see below).
+  const micWatchdogRef = useRef(null);
 
   const [isAudioReactActive, setIsAudioReactActive] = useState(false);
   const audioContextRef = useRef(null);
@@ -37,26 +50,75 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (isVoiceActive && !SpeechRecognition) {
+      // Firefox has no Web Speech API at all, and Chrome hides it on insecure
+      // origins — either way the button would otherwise light up and do nothing.
+      setVoiceStatus({
+        heard: '',
+        result: 'error',
+        detail: window.isSecureContext
+          ? 'This browser has no speech recognition. Use Google Chrome.'
+          : 'Speech recognition needs a secure context — serve the app over HTTPS or use localhost.',
+      });
+      setIsVoiceActive(false);
+      return;
+    }
+
+    if (isVoiceActive) setVoiceStatus({ heard: '', result: 'listening', detail: 'Listening…' });
+
     if (SpeechRecognition && isVoiceActive) {
       recognitionRef.current = new SpeechRecognition();
       recognitionRef.current.continuous = true;
       recognitionRef.current.interimResults = false;
       recognitionRef.current.lang = 'en-US';
 
+      // When the microphone permission is still pending, Chrome starts the
+      // recognizer and then emits nothing at all — no onstart, no onerror, not
+      // even an onend on abort(). Without this watchdog that state is
+      // indistinguishable from working, which is exactly what "the mic button
+      // does nothing" looks like.
+      const clearWatchdog = () => {
+        if (micWatchdogRef.current) {
+          clearTimeout(micWatchdogRef.current);
+          micWatchdogRef.current = null;
+        }
+      };
+      micWatchdogRef.current = setTimeout(() => {
+        setVoiceStatus({
+          heard: '',
+          result: 'error',
+          detail: 'Microphone never started. Check for a permission prompt in the address bar, or allow the mic for this site in Chrome settings.',
+        });
+      }, 3000);
+
+      recognitionRef.current.onstart = clearWatchdog;
+      recognitionRef.current.onaudiostart = () => {
+        clearWatchdog();
+        setVoiceStatus({ heard: '', result: 'listening', detail: 'Listening…' });
+      };
+
       recognitionRef.current.onresult = (event) => {
+        clearWatchdog();
         const lastResult = event.results[event.results.length - 1];
         if (lastResult.isFinal) {
           const transcript = lastResult[0].transcript.toLowerCase().trim();
-          handleVoiceCommand(transcript);
+          handleVoiceCommandRef.current?.(transcript);
         }
       };
 
       recognitionRef.current.onerror = (event) => {
-        if (event.error === 'network') {
-            alert("Microphone network error: This usually happens for two reasons:\n1. You are not using HTTPS (or localhost).\n2. You are using a browser like Brave, Vivaldi, or Chromium that doesn't have access to Google's Speech Servers.\n\nPlease use Google Chrome on a secure connection.");
-        } else {
-            console.error("Speech recognition error", event.error);
-        }
+        console.error("Speech recognition error", event.error);
+        const detail = {
+          'network': 'Speech service unreachable. Needs HTTPS (or localhost) and a browser with Google speech servers — Chrome, not Brave/Vivaldi.',
+          'not-allowed': 'Microphone permission denied. Allow the mic for this site.',
+          'service-not-allowed': 'Speech service blocked by the browser. Needs HTTPS and Chrome.',
+          'audio-capture': 'No microphone found.',
+          'no-speech': 'Heard nothing — still listening.',
+        }[event.error] || `Speech recognition error: ${event.error}`;
+
+        setVoiceStatus({ heard: '', result: event.error === 'no-speech' ? 'listening' : 'error', detail });
+
         if (['not-allowed', 'network', 'service-not-allowed', 'audio-capture'].includes(event.error)) {
           setIsVoiceActive(false);
         }
@@ -77,6 +139,10 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
     }
     
     return () => {
+      if (micWatchdogRef.current) {
+        clearTimeout(micWatchdogRef.current);
+        micWatchdogRef.current = null;
+      }
       if (recognitionRef.current) {
         recognitionRef.current.onend = null; // prevent restart loop
         recognitionRef.current.stop();
@@ -163,40 +229,89 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
     };
   }, [isAudioReactActive]);
 
+  // Exact-keyword commands. These are the ones the Help modal promises, they
+  // need no API key, and they answer instantly — so they are tried first and
+  // the LLM is only consulted for phrasing they do not cover.
+  const runKeywordCommand = (transcript) => {
+    const has = (...words) => words.some(w => transcript.includes(w));
+    const pad = padPosRef.current;
+
+    if (has('stop', 'pause')) {
+      handleStop();
+      return 'Stop';
+    }
+    if (has('faster'))    { stopRhythm(); sendToDeviceRef.current(Math.min(100, pad.speed + 20), pad.stroke); return 'Faster'; }
+    if (has('slower'))    { stopRhythm(); sendToDeviceRef.current(Math.max(0, pad.speed - 20), pad.stroke); return 'Slower'; }
+    if (has('deeper'))    { stopRhythm(); sendToDeviceRef.current(pad.speed, Math.min(100, pad.stroke + 20)); return 'Deeper'; }
+    if (has('shallower', 'shorter')) { stopRhythm(); sendToDeviceRef.current(pad.speed, Math.max(0, pad.stroke - 20)); return 'Shallower'; }
+    if (has('climax'))    { stopRhythm(); sendToDeviceRef.current(80, 100); setClimaxState('climaxing'); return 'Climax'; }
+    if (has('done', 'finished')) { stopRhythm(); sendToDeviceRef.current(20, 40); setClimaxState('idle'); return 'Aftercare'; }
+
+    // Presets by name — these were advertised in the Help modal but had no
+    // keyword handler, so they only worked when the LLM call succeeded.
+    if (has('tease'))              { presetTease();    return 'Tease preset'; }
+    if (has('blow'))               { presetBlow();     return 'Blow preset'; }
+    if (has('pound', 'hard'))      { presetPounding(); return 'Pounding preset'; }
+    if (has('flutter', 'vibrate')) { presetVibrate();  return 'Flutter preset'; }
+    if (has('edge', 'edging'))     { presetEdging();   return 'Edging preset'; }
+    if (has('mix'))                { presetMix();      return 'Mix preset'; }
+    if (has('random'))             { presetRandom();   return 'Random preset'; }
+    if (has('organic', 'magic'))   { presetOrganic();  return 'Organic preset'; }
+    // Checked last: 'deep'/'slow' are substrings of 'deeper'/'slower'.
+    if (has('deep', 'slow'))       { presetSlowDeep(); return 'Slow Deep preset'; }
+
+    return null;
+  };
+
+  const applyIntent = (intent) => {
+    const pad = padPosRef.current;
+    if (intent.action === 'adjust') {
+      stopRhythm();
+      sendToDeviceRef.current(intent.speed ?? pad.speed, intent.stroke ?? pad.stroke);
+      return `Speed ${intent.speed ?? pad.speed}%, depth ${intent.stroke ?? pad.stroke}%`;
+    }
+    if (intent.action === 'stop')      { handleStop(); return 'Stop'; }
+    if (intent.action === 'climax')    { stopRhythm(); sendToDeviceRef.current(80, 100); setClimaxState('climaxing'); return 'Climax'; }
+    if (intent.action === 'aftercare') { stopRhythm(); sendToDeviceRef.current(20, 40); setClimaxState('idle'); return 'Aftercare'; }
+    if (intent.action === 'preset' && intent.presetName) {
+      const presets = {
+        'tease': presetTease,
+        'blow': presetBlow,
+        'slow_deep': presetSlowDeep,
+        'pounding': presetPounding,
+        'vibrate': presetVibrate,
+        'edging': presetEdging,
+        'mix': presetMix,
+        'random': presetRandom,
+        'organic': presetOrganic
+      };
+      if (presets[intent.presetName]) {
+        presets[intent.presetName]();
+        return `${intent.presetName} preset`;
+      }
+    }
+    return null;
+  };
+
   const handleVoiceCommand = async (transcript) => {
     console.log(`[Voice Command] Heard: "${transcript}"`);
-    
+    setVoiceStatus({ heard: transcript, result: 'listening', detail: '' });
+
+    const matched = runKeywordCommand(transcript);
+    if (matched) {
+      console.log(`[Voice Command] Keyword match -> ${matched}`);
+      setVoiceStatus({ heard: transcript, result: 'ok', detail: matched });
+      return;
+    }
+
+    // Nothing matched. Without an LLM configured there is nothing further to try.
     if (!settings.llmUrl) {
-      console.log("[Voice Command] LLM not configured, using fallback keywords.");
-      if (transcript.includes('stop') || transcript.includes('pause')) {
-        stopRhythm();
-        sendToDeviceRef.current(0, padPosRef.current.stroke);
-      } else if (transcript.includes('faster')) {
-        stopRhythm();
-        const newSpeed = Math.min(100, padPosRef.current.speed + 20);
-        sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
-      } else if (transcript.includes('slower')) {
-        stopRhythm();
-        const newSpeed = Math.max(0, padPosRef.current.speed - 20);
-        sendToDeviceRef.current(newSpeed, padPosRef.current.stroke);
-      } else if (transcript.includes('deeper')) {
-        stopRhythm();
-        const newStroke = Math.min(100, padPosRef.current.stroke + 20);
-        sendToDeviceRef.current(padPosRef.current.speed, newStroke);
-      } else if (transcript.includes('shallower') || transcript.includes('shorter')) {
-        stopRhythm();
-        const newStroke = Math.max(0, padPosRef.current.stroke - 20);
-        sendToDeviceRef.current(padPosRef.current.speed, newStroke);
-      } else if (transcript.includes('climax')) {
-        stopRhythm();
-        sendToDeviceRef.current(80, 100);
-        setClimaxState('climaxing');
-      }
+      setVoiceStatus({ heard: transcript, result: 'unmatched', detail: 'No matching command' });
       return;
     }
 
     try {
-      console.log(`[Voice Command] Sending to LLM for intent parsing...`);
+      console.log(`[Voice Command] No keyword match, asking LLM to parse intent...`);
       const response = await fetch('/api/voice-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -205,49 +320,33 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
           apiKey: settings.llmApiKey,
           llmUrl: settings.llmUrl,
           llmVoiceModel: settings.llmVoiceModel,
+          llmModel: settings.llmModel,
           currentSpeed: padPosRef.current.speed,
           currentStroke: padPosRef.current.stroke
         })
       });
 
-      if (!response.ok) throw new Error('Voice API failed');
+      if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`${response.status} ${body.slice(0, 200)}`);
+      }
       const intent = await response.json();
       console.log(`[Voice Command] LLM Intent Result:`, intent);
 
-      if (intent.action === 'adjust') {
-        stopRhythm();
-        sendToDeviceRef.current(intent.speed ?? padPosRef.current.speed, intent.stroke ?? padPosRef.current.stroke);
-      } else if (intent.action === 'stop') {
-        stopRhythm();
-        sendToDeviceRef.current(0, padPosRef.current.stroke);
-      } else if (intent.action === 'climax') {
-        stopRhythm();
-        sendToDeviceRef.current(80, 100);
-        setClimaxState('climaxing');
-      } else if (intent.action === 'aftercare') {
-        stopRhythm();
-        sendToDeviceRef.current(20, 40);
-        setClimaxState('idle');
-      } else if (intent.action === 'preset' && intent.presetName) {
-        const presets = {
-          'tease': presetTease,
-          'blow': presetBlow,
-          'slow_deep': presetSlowDeep,
-          'pounding': presetPounding,
-          'vibrate': presetVibrate,
-          'edging': presetEdging,
-          'mix': presetMix,
-          'random': presetRandom,
-          'organic': presetOrganic
-        };
-        if (presets[intent.presetName]) {
-          presets[intent.presetName]();
-        }
-      }
+      const applied = applyIntent(intent);
+      setVoiceStatus(applied
+        ? { heard: transcript, result: 'ok', detail: applied }
+        : { heard: transcript, result: 'unmatched', detail: 'No matching command' });
     } catch (error) {
+      // Previously this only reached the console, so a missing or rejected API
+      // key looked exactly like the microphone not working at all.
       console.error("[Voice Command] Failed to process intent:", error);
+      setVoiceStatus({ heard: transcript, result: 'error', detail: String(error.message || error) });
     }
   };
+
+  // Always let the recognition callback reach the current handler.
+  useEffect(() => { handleVoiceCommandRef.current = handleVoiceCommand; });
 
   // Random Mode
   const [randomDuration, setRandomDuration] = useState(10);
@@ -255,6 +354,9 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
   
   const padPosRef = useRef({ speed: 0, stroke: 0 });
   const lastApiCall = useRef(0);
+  // Latest value waiting for the throttle window to close, and its timer.
+  const pendingTargetRef = useRef(null);
+  const trailingTimerRef = useRef(null);
   const rhythmInterval = useRef(null);
   const randomState = useRef({ targetX: 50, targetY: 50, startX: 0, startY: 0, startTime: 0 });
   
@@ -305,7 +407,10 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
 
   // Clean up rhythms on unmount
   useEffect(() => {
-    return () => stopRhythm();
+    return () => {
+      stopRhythm();
+      if (trailingTimerRef.current) clearTimeout(trailingTimerRef.current);
+    };
   }, []);
 
   // Sync randomDuration to ref
@@ -352,12 +457,35 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
     setDeviceMax(targetMax);
     
     if (!settings.handyKey) return;
-    
-    const now = Date.now();
-    if (now - lastApiCall.current > 250) {
-      lastApiCall.current = now;
-      await apiSetStrokeZone(settings.handyKey, targetMin, targetMax);
-      await apiSetSpeed(settings.handyKey, targetSpeed);
+
+    // Rate-limit the device API, but never discard the newest value: a plain
+    // leading-edge throttle drops the end of every drag (the device sticks at
+    // whatever it saw mid-gesture) and, because the rhythm presets tick at
+    // exactly 250ms, silently loses about half of their updates. Anything
+    // arriving inside the window is parked and sent when the window closes.
+    pendingTargetRef.current = { targetSpeed, targetMin, targetMax };
+
+    const flush = async () => {
+      const target = pendingTargetRef.current;
+      if (!target) return;
+      pendingTargetRef.current = null;
+      lastApiCall.current = Date.now();
+      await apiSetStrokeZone(settings.handyKey, target.targetMin, target.targetMax);
+      await apiSetSpeed(settings.handyKey, target.targetSpeed);
+    };
+
+    const elapsed = Date.now() - lastApiCall.current;
+    if (elapsed >= THROTTLE_MS) {
+      if (trailingTimerRef.current) {
+        clearTimeout(trailingTimerRef.current);
+        trailingTimerRef.current = null;
+      }
+      await flush();
+    } else if (!trailingTimerRef.current) {
+      trailingTimerRef.current = setTimeout(() => {
+        trailingTimerRef.current = null;
+        flush();
+      }, THROTTLE_MS - elapsed);
     }
   };
 
@@ -374,6 +502,12 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
 
   const handleStop = async () => {
     stopRhythm();
+    // Drop any parked update, or it would fire just after the stop and restart motion
+    pendingTargetRef.current = null;
+    if (trailingTimerRef.current) {
+      clearTimeout(trailingTimerRef.current);
+      trailingTimerRef.current = null;
+    }
     // Reset throttle so the stop goes through immediately
     lastApiCall.current = 0;
     // Update visual state
@@ -604,7 +738,33 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
 
       {/* Main Remote Area */}
       <main className="flex-1 flex flex-col p-4 md:p-8 max-w-3xl mx-auto w-full">
-        
+
+        {/* Voice feedback — shows what was heard and whether it did anything */}
+        {voiceStatus && (
+          <div className={`flex items-start gap-3 px-4 py-3 rounded-xl border text-sm mb-2 ${
+            voiceStatus.result === 'error'
+              ? 'bg-red-50 dark:bg-red-900/20 border-red-300 dark:border-red-800 text-red-700 dark:text-red-300'
+              : voiceStatus.result === 'unmatched'
+              ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300'
+              : voiceStatus.result === 'ok'
+              ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+              : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400'
+          }`}>
+            <Mic size={16} className={`mt-0.5 shrink-0 ${voiceStatus.result === 'listening' ? 'animate-pulse' : ''}`} />
+            <div className="min-w-0">
+              {voiceStatus.heard && <div className="font-medium truncate">“{voiceStatus.heard}”</div>}
+              <div className={voiceStatus.heard ? 'text-xs opacity-80' : ''}>{voiceStatus.detail}</div>
+            </div>
+            <button
+              onClick={() => setVoiceStatus(null)}
+              className="ml-auto shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+              title="Dismiss"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+
         {/* XY Pad */}
         <div className="flex-1 flex items-center justify-center my-4 min-h-[250px]">
           <XYPad 

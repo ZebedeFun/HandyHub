@@ -103,7 +103,7 @@ app.post('/api/chat', async (req, res) => {
 
 // Voice Intent Endpoint
 app.post('/api/voice-intent', async (req, res) => {
-    const { transcript, apiKey, llmUrl, llmVoiceModel, currentSpeed, currentStroke } = req.body;
+    const { transcript, apiKey, llmUrl, llmVoiceModel, llmModel, currentSpeed, currentStroke } = req.body;
     
     if (!llmUrl) {
         return res.status(400).json({ error: 'LLM URL is required' });
@@ -135,7 +135,11 @@ Example Output: {"action":"adjust", "speed": ${Math.min(100, currentSpeed + 20)}
             method: 'POST',
             headers: headers,
             body: JSON.stringify({
-                model: llmVoiceModel || 'mistralai/mistral-7b-instruct:free',
+                // Fall back to the configured chat model rather than a hardcoded
+                // one: the old default is not served by every provider (Nano-GPT
+                // rejects it outright), which failed every voice command whenever
+                // llmVoiceModel was left blank.
+                model: llmVoiceModel || llmModel || 'mistralai/mistral-7b-instruct:free',
                 temperature: 0.1,
                 messages: [
                     { role: 'system', content: systemPrompt },
