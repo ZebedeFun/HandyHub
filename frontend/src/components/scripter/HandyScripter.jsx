@@ -13,6 +13,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const videoRef = useRef(null);
   
   const [videoFile, setVideoFile] = useState(null);
+  // Filename of a .funscript imported on its own, used to name the download.
+  const [importedScriptName, setImportedScriptName] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [durationMs, setDurationMs] = useState(0);
@@ -111,6 +113,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     if (file) {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
+      setImportedScriptName(null);
       resetFunscript(null); // clear old script
     }
   };
@@ -142,6 +145,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
           const json = JSON.parse(event.target.result);
           if (json.actions) {
              commitFunscript(json);
+             setImportedScriptName(file.name);
              if (!videoUrl && json.actions.length > 0) {
                setDurationMs(json.actions[json.actions.length - 1].at + 1000);
              }
@@ -246,15 +250,19 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
 
   // Download logic
   const handleDownload = () => {
-    if (!funscript || !videoFile) return;
+    // Only the script is required. Requiring a video too meant a .funscript
+    // dropped in on its own could be edited with every tool here and then never
+    // saved — the button simply did nothing.
+    if (!funscript) return;
 
     const json = JSON.stringify(funscript, null, 2);
     const blob = new Blob([json], { type: "application/json" });
     const href = URL.createObjectURL(blob);
-    
-    // Suggest a filename based on video
-    const baseName = videoFile.name.replace(/\.[^/.]+$/, "");
-    
+
+    // Name it after the video, else the imported script, else a fallback.
+    const source = videoFile?.name || importedScriptName;
+    const baseName = source ? source.replace(/\.[^/.]+$/, "") : "handyhub-script";
+
     const link = document.createElement("a");
     link.href = href;
     link.download = `${baseName}.funscript`;
