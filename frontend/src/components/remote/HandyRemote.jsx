@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Activity, Power, Zap, Wind, FastForward, Waves, Shuffle, Feather, RefreshCw, Sparkles, Mic, MicOff, Volume2, VolumeX, Flame, CheckCircle, HelpCircle, Settings } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone, stopHamp as apiStopHamp } from '../../services/handyService';
+import { checkStatus, setSpeed as apiSetSpeed, setStrokeZone as apiSetStrokeZone, stopHamp as apiStopHamp, velocityToMmPerSec, mmPerSecToVelocity } from '../../services/handyService';
 import XYPad from './XYPad';
 import RemoteSimulator from './RemoteSimulator';
 
@@ -28,7 +28,11 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
   const [limitMaxSpeed, setLimitMaxSpeed] = useState(100);
   const [limitMinDepth, setLimitMinDepth] = useState(0);
   const [limitMaxDepth, setLimitMaxDepth] = useState(100);
-  const [anchor, setAnchor] = useState('bottom'); 
+  const [anchor, setAnchor] = useState('bottom');
+  // Hold strokes-per-minute steady as depth changes (see sendToDevice).
+  const [constantTempo, setConstantTempo] = useState(false);
+  // True when a stroke is so short the tempo cannot be held at the device's floor.
+  const [isTempoFloored, setIsTempoFloored] = useState(false);
 
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const recognitionRef = useRef(null);
@@ -422,7 +426,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
   useEffect(() => {
     sendToDevice(padPosRef.current.speed, padPosRef.current.stroke);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [limitMinSpeed, limitMaxSpeed, limitMinDepth, limitMaxDepth, anchor]);
+  }, [limitMinSpeed, limitMaxSpeed, limitMinDepth, limitMaxDepth, anchor, constantTempo]);
 
   const sendToDevice = async (xOut, yOut) => {
     padPosRef.current = { speed: xOut, stroke: yOut };
@@ -449,12 +453,34 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
       targetMax = Math.round(center + strokeAmount / 2);
     }
 
+    // Constant tempo: hold strokes-per-minute steady as the depth axis moves.
+    //
+    // The device's velocity is a linear speed, so a half-length stroke at the
+    // same velocity comes round twice as often — drop the depth and it feels
+    // like it sped up even though Speed was untouched. To keep the tempo put,
+    // the carriage speed has to scale with the stroke length:
+    //   cycles/sec = mm_per_sec / (2 * stroke_mm)   =>   mm_per_sec ∝ stroke_mm
+    // Scaling the 0-100 percentage directly would be wrong, because 0% is not
+    // 0 mm/s — the mapping has an offset — so convert to mm/s and back.
+    let outSpeed = targetSpeed;
+    let tempoFloored = false;
+    if (constantTempo) {
+      const fullLength = Math.max(1, safeMaxDepth - safeMinDepth);
+      const strokeLength = Math.max(0, targetMax - targetMin);
+      const wantedMmPerSec = velocityToMmPerSec(targetSpeed) * (strokeLength / fullLength);
+      const scaled = mmPerSecToVelocity(wantedMmPerSec);
+      // Below the device's minimum speed the tempo cannot be held any lower.
+      tempoFloored = scaled < 0 && strokeLength > 0;
+      outSpeed = Math.round(Math.min(100, Math.max(0, scaled)));
+    }
+
     // Always update visual state immediately
     setPadSpeed(xOut);
     setPadStroke(yOut);
-    setActualSpeed(targetSpeed);
+    setActualSpeed(outSpeed);
     setDeviceMin(targetMin);
     setDeviceMax(targetMax);
+    setIsTempoFloored(tempoFloored);
     
     if (!settings.handyKey) return;
 
@@ -463,7 +489,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
     // whatever it saw mid-gesture) and, because the rhythm presets tick at
     // exactly 250ms, silently loses about half of their updates. Anything
     // arriving inside the window is parked and sent when the window closes.
-    pendingTargetRef.current = { targetSpeed, targetMin, targetMax };
+    pendingTargetRef.current = { targetSpeed: outSpeed, targetMin, targetMax };
 
     const flush = async () => {
       const target = pendingTargetRef.current;
@@ -873,7 +899,34 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
               <button onClick={() => setAnchor('bottom')} className={`px-3 py-1.5 text-[10px] sm:text-xs font-bold rounded-md transition-shadow ${anchor === 'bottom' ? 'bg-white dark:bg-gray-700 shadow text-purple-500' : 'text-gray-500'}`}>Bottom-Up</button>
             </div>
           </div>
-          
+
+          {/* Constant tempo */}
+          <div className="mb-6 p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={constantTempo}
+                onChange={e => setConstantTempo(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded accent-blue-500 shrink-0"
+              />
+              <span className="min-w-0">
+                <span className="block text-xs font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Constant Tempo</span>
+                <span className="block text-[11px] text-gray-500 dark:text-gray-400 leading-snug mt-1">
+                  The device moves at a fixed speed rather than a fixed rhythm, so a shorter stroke normally
+                  comes round faster — drop the depth and it feels quicker even though Speed did not change.
+                  Turn this on to keep the strokes-per-minute steady as you move up and down the pad.
+                </span>
+              </span>
+            </label>
+            {constantTempo && isTempoFloored && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 pl-7 leading-snug">
+                Stroke is too short to slow down any further — the device is at its minimum speed, so the
+                tempo is rising anyway. Lengthen the stroke or lower Speed.
+              </p>
+            )}
+          </div>
+
+
           <div className="grid grid-cols-2 gap-x-8 gap-y-6">
             <div>
               <label className="flex justify-between text-xs font-bold text-gray-500 mb-2"><span>Min Depth</span><span>{limitMinDepth}%</span></label>

@@ -6,6 +6,32 @@
 
 const API_BASE = 'https://www.handyfeeling.com/api/handy/v2';
 
+// HAMP `velocity` is a LINEAR carriage speed, not a stroke rate: the device
+// travels at a fixed mm/s regardless of how far it has to go, so shortening the
+// slide zone at a fixed velocity makes the strokes come round faster.
+// The API only documents "velocity, 0-100"; these are the published hardware
+// figures the percentage maps onto. Corroborated by the SDK note that 0% does
+// not stop the device but moves it at its slowest speed — i.e. a non-zero floor.
+// Adjust here if the real numbers turn out to differ.
+export const DEVICE_MIN_MM_PER_SEC = 32;
+export const DEVICE_MAX_MM_PER_SEC = 450;
+// Full travel of the carriage, i.e. what position 0 -> 100 corresponds to.
+export const DEVICE_FULL_STROKE_MM = 125;
+
+/** HAMP velocity percentage -> carriage speed in mm/s. */
+export const velocityToMmPerSec = (velocity) => {
+  const v = Math.min(100, Math.max(0, velocity));
+  return DEVICE_MIN_MM_PER_SEC + (v / 100) * (DEVICE_MAX_MM_PER_SEC - DEVICE_MIN_MM_PER_SEC);
+};
+
+/**
+ * Carriage speed in mm/s -> HAMP velocity percentage.
+ * Returns a negative number when the requested speed is below what the device
+ * can do, so callers can tell "clamped" apart from "genuinely slowest".
+ */
+export const mmPerSecToVelocity = (mmPerSec) =>
+  ((mmPerSec - DEVICE_MIN_MM_PER_SEC) / (DEVICE_MAX_MM_PER_SEC - DEVICE_MIN_MM_PER_SEC)) * 100;
+
 const getHeaders = (connectionKey) => ({
   'accept': 'application/json',
   'X-Connection-Key': connectionKey,

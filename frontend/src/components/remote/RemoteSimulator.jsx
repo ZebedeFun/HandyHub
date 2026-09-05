@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { velocityToMmPerSec, DEVICE_FULL_STROKE_MM } from '../../services/handyService';
 
 export default function RemoteSimulator({ speed, deviceMin, deviceMax }) {
   const [currentPos, setCurrentPos] = useState(deviceMin);
@@ -20,11 +21,16 @@ export default function RemoteSimulator({ speed, deviceMin, deviceMax }) {
       const strokeDistance = deviceMax - deviceMin;
 
       if (speed > 0 && strokeDistance > 0) {
-        // Map speed 0-100 to a more realistic visual curve (0.2Hz to 3.5Hz)
-        // Using a power curve makes lower speeds look appropriately gentle.
-        const cyclesPerSecond = 0.2 + Math.pow(speed / 100, 1.5) * 3.3; 
-        const percentPerSecond = cyclesPerSecond * 2 * strokeDistance; // distance covered per second
-        
+        // Model the device as it actually behaves: `speed` is a LINEAR carriage
+        // speed, so the sleeve covers the same distance per second whatever the
+        // stroke length, and a shorter stroke therefore cycles more often.
+        //
+        // This previously held cycles-per-second constant and scaled the linear
+        // speed by strokeDistance — exactly backwards — so the preview stayed
+        // visually identical while the real device sped up as the depth fell,
+        // hiding the effect the Constant Tempo option exists to correct.
+        const percentPerSecond = velocityToMmPerSec(speed) * (100 / DEVICE_FULL_STROKE_MM);
+
         const movement = (percentPerSecond * dt) / 1000;
         
         setCurrentPos((prev) => {
