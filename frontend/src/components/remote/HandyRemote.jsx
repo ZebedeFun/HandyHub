@@ -30,7 +30,7 @@ export default function HandyRemote({ isDarkMode, toggleTheme, settings, openSet
   const [limitMaxDepth, setLimitMaxDepth] = useState(100);
   const [anchor, setAnchor] = useState('bottom');
   // Hold strokes-per-minute steady as depth changes (see sendToDevice).
-  const [constantTempo, setConstantTempo] = useState(false);
+  const [constantTempo, setConstantTempo] = useState(true);
   // True when a stroke is so short the tempo cannot be held at the device's floor.
   const [isTempoFloored, setIsTempoFloored] = useState(false);
 
