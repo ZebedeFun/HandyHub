@@ -38,12 +38,17 @@ export default function SettingsModal({ settings, onSave, onClose }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           text: "Hello! This is a test of my voice. How do I sound?", 
-          ttsProvider: 'Kokoro',
           kokoroUrl: localSettings.kokoroUrl,
-          kokoroVoice: localSettings.kokoroVoice || 'af_bella'
+          kokoroVoice: localSettings.kokoroVoice || 'af_bella',
+          ttsSpeed: localSettings.ttsSpeed || 1
         })
       });
-      if (!res.ok) throw new Error("TTS fetch failed");
+      if (!res.ok) {
+        // Show what Kokoro actually said, so a bad URL, an unknown voice and a
+        // stopped container are told apart at the point of testing.
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.error || `Kokoro returned ${res.status}`);
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       if (audioRef.current) {
@@ -56,7 +61,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
       audio.play();
     } catch (err) {
       console.error(err);
-      alert("Failed to test Kokoro TTS.");
+      alert(`Failed to test Kokoro TTS.\n\n${err.message || err}`);
       setIsPlayingTest(false);
     }
   };
@@ -145,65 +150,32 @@ export default function SettingsModal({ settings, onSave, onClose }) {
               </div>
             </div>
             <div className="border-t border-b dark:border-gray-700 py-4 my-4">
-              <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Text-to-Speech (TTS) Settings</h3>
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-4">Voice (Kokoro TTS)</h3>
               <div className="mb-4">
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">TTS Provider</label>
-                <select name="ttsProvider" value={localSettings.ttsProvider || 'Google'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
-                  <option value="Google">Google API</option>
-                  <option value="Kokoro">Local Kokoro</option>
-                </select>
-              </div>
-              <div className="mb-4">
-                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">TTS Chunking Strategy</label>
-                <select name="ttsChunking" value={localSettings.ttsChunking || 'sentence'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
-                  <option value="sentence">Per Sentence (default) — most responsive</option>
-                  <option value="tagChange">Per HANDY Tag Change — balanced, fewer TTS calls</option>
-                  <option value="paragraph">Per Paragraph — smoothest Kokoro voice, good context</option>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Voice Chunk Size</label>
+                <select name="ttsChunkChars" value={localSettings.ttsChunkChars || 120} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
+                  <option value="60">Responsive — speech starts soonest</option>
+                  <option value="120">Balanced (default)</option>
+                  <option value="240">Smoothest — longest, most natural phrasing</option>
                 </select>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                  <strong>Per Sentence:</strong> Each sentence is its own TTS call. Fastest first-word response but more API overhead.<br/>
-                  <strong>Per HANDY Tag:</strong> Groups sentences between speed/stroke changes. Fewer calls, smoother voice, good device sync.<br/>
-                  <strong>Per Paragraph:</strong> One TTS call per paragraph. Best voice quality (Kokoro benefits from paragraph context) with only 2-3 calls per scene.
+                  Sentences are grouped until they reach roughly this many characters before being sent to Kokoro. Short fragments are quick to start but sound clipped, because each call restarts the voice's phrasing; longer groups sound better but take longer to generate. Speed and stroke tags always start a new chunk, so the device stays in sync either way.
                 </p>
               </div>
-              
-              {(localSettings.ttsProvider === 'Google' || !localSettings.ttsProvider) && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Google API Key</label>
-                    <input type="password" name="googleApiKey" value={localSettings.googleApiKey || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="AIzaSy..." />
-                  </div>
-                  <div className="flex space-x-4">
-                    <div className="w-1/2">
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Google Voice API</label>
-                      <select name="googleTtsType" value={localSettings.googleTtsType || 'Neural2'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
-                        <option value="Standard">Standard</option>
-                        <option value="Wavenet">WaveNet</option>
-                        <option value="Neural2">Neural2</option>
-                        <option value="Journey">Journey</option>
-                      </select>
-                    </div>
-                    <div className="w-1/2">
-                      <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Voice Identifier</label>
-                      <select name="googleVoice" value={localSettings.googleVoice || 'F'} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition">
-                        <option value="A">Voice A (Male)</option>
-                        <option value="B">Voice B (Male)</option>
-                        <option value="C">Voice C (Female)</option>
-                        <option value="D">Voice D (Male)</option>
-                        <option value="E">Voice E (Female)</option>
-                        <option value="F">Voice F (Female)</option>
-                        <option value="G">Voice G (Female)</option>
-                        <option value="H">Voice H (Female)</option>
-                        <option value="I">Voice I (Male)</option>
-                        <option value="J">Voice J (Male)</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-              )}
 
-              {localSettings.ttsProvider === 'Kokoro' && (
-                <div className="space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+              <div className="mb-4">
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300">Voice Speed</label>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 font-mono bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">{localSettings.ttsSpeed || 1}x</span>
+                </div>
+                <input type="range" name="ttsSpeed" min="0.5" max="1.5" step="0.05" value={localSettings.ttsSpeed || 1} onChange={handleChange} className="w-full accent-pink-500" />
+                <div className="flex justify-between text-xs text-gray-400 dark:text-gray-500 mt-1">
+                  <span>Slower</span>
+                  <span>Faster</span>
+                </div>
+              </div>
+
+              <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Kokoro URL Endpoint</label>
                     <input type="text" name="kokoroUrl" value={localSettings.kokoroUrl || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="http://localhost:8880/v1/audio/speech" />
@@ -251,8 +223,7 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                       </button>
                     </div>
                   </div>
-                </div>
-              )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Character Name</label>

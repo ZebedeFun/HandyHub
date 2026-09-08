@@ -14,8 +14,95 @@ const PERSONAS = [
   { id: 'custom', name: 'Custom...', prompt: '' }
 ];
 
-// Maximum number of in-flight TTS requests to avoid overwhelming Kokoro
-const MAX_CONCURRENT_TTS = 3;
+// Live sentences and background prefetch share one Kokoro instance, so requests
+// are scheduled rather than fired at will. Measured against kokoro-fastapi-cpu
+// on a 4-core host: one request for a 100-character sentence takes 3.7s, while
+// two of them in parallel take 8.9s EACH. Overlapping requests therefore delay
+// the very chunk that is about to play, so synthesis runs one at a time and the
+// queue is ordered by priority instead — live speech always next, background
+// prefetch only in the gaps.
+const MAX_CONCURRENT_TTS = 1;
+const TTS_PRIORITY_LIVE = 0;
+const TTS_PRIORITY_PREFETCH = 1;
+
+// Short lines repeat constantly ("Mmm.", "Good boy."). Re-synthesising one costs
+// a full round trip for a byte-identical result, so keep the last few blobs.
+const TTS_CACHE_MAX = 40;
+
+// Sentence/clause boundary: a terminator plus any closing quote, then space.
+// The trailing \s keeps decimals and abbreviations from being split.
+const BOUNDARY_RE = /([.!?\u2026](?:["'\u2019\u201d)\]]+)?|[\n;])\s/;
+
+// Repaint budget for streamed text. Without it every SSE token re-renders the
+// whole transcript, which is what makes long scenes stutter on a phone.
+const DISPLAY_THROTTLE_MS = 80;
+
+// The model is told not to write asterisk actions but still slips them in, and
+// markdown/emoji reach Kokoro's phonemiser as literal characters. Strip them
+// from what is spoken; the on-screen text keeps everything.
+function sanitizeForTTS(text) {
+  if (!text) return '';
+  return text
+    .replace(/\*[^*]*\*/g, ' ')                    // *giggles* — stage direction, not speech
+    .replace(/\[[^\]]*\]/g, ' ')                   // any leftover [TAG]
+    .replace(/[*_`~#]/g, ' ')                      // stray markdown
+    .replace(/\p{Extended_Pictographic}/gu, ' ')   // emoji
+    .replace(/\u2026/g, '...')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Pull speakable chunks out of a streaming buffer.
+ *
+ * Sentences are split off first, then glued back together until the chunk is
+ * long enough to be worth a Kokoro call: a lone "Mmm." pays the engine's fixed
+ * per-request cost and restarts its prosody, which is what made per-sentence
+ * playback sound clipped. Oversized chunks have the opposite problem — the
+ * queue stalls with nothing to play — so anything past maxChars is cut at the
+ * last word break inside it.
+ *
+ * Returns the chunks ready to speak and the text still waiting for more input.
+ */
+function takeChunks(buffer, minChars, maxChars, flushTail) {
+  const chunks = [];
+  let pending = '';
+  let rest = buffer;
+
+  const emit = () => {
+    const t = pending.trim();
+    pending = '';
+    if (t) chunks.push(t);
+  };
+
+  let m;
+  while ((m = rest.match(BOUNDARY_RE))) {
+    const end = m.index + m[0].length;
+    pending += rest.slice(0, end);
+    rest = rest.slice(end);
+    if (pending.trim().length >= minChars) emit();
+  }
+
+  // Nothing has terminated in a long while (run-on delivery, or a model that
+  // forgets to punctuate): cut at a word break rather than hold up playback.
+  while (pending.length + rest.length >= maxChars) {
+    const combined = pending + rest;
+    const space = combined.slice(0, maxChars).lastIndexOf(' ');
+    const cut = space > minChars ? space : maxChars;
+    const piece = combined.slice(0, cut).trim();
+    if (piece) chunks.push(piece);
+    rest = combined.slice(cut).trimStart();
+    pending = '';
+  }
+
+  if (flushTail) {
+    pending += rest;
+    rest = '';
+    emit();
+  }
+
+  return { chunks, rest: pending + rest };
+}
 
 // Splits an SSE byte stream into complete `data:` payloads.
 // Network chunks do not respect line boundaries: a single `data: {...}` line is
@@ -82,6 +169,10 @@ export default function ChatInterface({ settings }) {
   });
   // Tracks which message index is currently being spoken (not just the newest one)
   const [activeDisplayMsgIdx, setActiveDisplayMsgIdx] = useState(0);
+  // Surfaced when Kokoro fails: without it a bad URL or a stopped container is
+  // indistinguishable from "the voice just went quiet", because the queue falls
+  // back to text-length timing and carries on.
+  const [ttsError, setTtsError] = useState('');
 
   const selectedPersonaRef = useRef(selectedPersona);
   const customPersonaPromptRef = useRef(customPersonaPrompt);
@@ -121,9 +212,19 @@ export default function ChatInterface({ settings }) {
   // --- Keep-awake: silent looping audio to prevent iOS auto-lock (mobile only) ---
   const keepAwakeAudioRef = useRef(null);
 
-  // --- TTS concurrency limiter ---
+  // --- TTS scheduling, cancellation and cache ---
   const ttsInFlightRef = useRef(0);
+  // Waiters are [{ priority, resolve }]; the lowest priority number goes first.
   const ttsWaitQueueRef = useRef([]);
+  // Every in-flight request, so STOP can cancel work already sent to Kokoro.
+  const ttsAbortsRef = useRef(new Set());
+  // key -> Blob, insertion-ordered so the oldest entry is the one evicted.
+  const ttsCacheRef = useRef(new Map());
+  // Bumped on STOP: a request that was still queued when the scene was cancelled
+  // wakes up, sees a stale epoch and gives up instead of calling Kokoro.
+  const ttsEpochRef = useRef(0);
+  // Last speed/stroke actually sent to the device, to skip no-op API calls.
+  const lastDeviceRef = useRef({ speed: null, stroke: null });
 
 
 
@@ -272,45 +373,130 @@ export default function ChatInterface({ settings }) {
      setSelectedPersona(PERSONAS[0]);
   };
 
-  // Audio Queue System — with concurrency limiter for TTS requests
-  const fetchTTSAudio = async (text) => {
-    const s = settingsRef.current;
-    if (s.ttsProvider !== 'Kokoro' && !s.googleApiKey) return null;
-    
-    // Wait for a TTS slot to avoid overwhelming the TTS engine
-    while (ttsInFlightRef.current >= MAX_CONCURRENT_TTS) {
-      await new Promise(resolve => { ttsWaitQueueRef.current.push(resolve); });
-    }
-    ttsInFlightRef.current += 1;
+  // --- Audio Queue System -------------------------------------------------
 
+  // Take a synthesis slot, or wait for one. Waiting requests are served by
+  // priority rather than arrival order, so a live sentence overtakes background
+  // prefetch that was queued before it.
+  const acquireTtsSlot = (priority) => {
+    if (ttsInFlightRef.current < MAX_CONCURRENT_TTS) {
+      ttsInFlightRef.current += 1;
+      return Promise.resolve();
+    }
+    return new Promise(resolve => {
+      ttsWaitQueueRef.current.push({ priority, resolve });
+    });
+  };
+
+  // Hand the slot straight to the highest-priority waiter (the in-flight count
+  // is unchanged in that case — the slot is inherited, not re-acquired).
+  const releaseTtsSlot = () => {
+    const queue = ttsWaitQueueRef.current;
+    if (queue.length === 0) {
+      ttsInFlightRef.current = Math.max(0, ttsInFlightRef.current - 1);
+      return;
+    }
+    let best = 0;
+    for (let i = 1; i < queue.length; i++) {
+      if (queue[i].priority < queue[best].priority) best = i;
+    }
+    const [next] = queue.splice(best, 1);
+    next.resolve();
+  };
+
+  const trackBlobUrl = (blobUrl) => {
+    activeBlobUrlsRef.current.add(blobUrl);
+    return blobUrl;
+  };
+
+  const cacheTtsBlob = (key, blob) => {
+    const cache = ttsCacheRef.current;
+    cache.set(key, blob);
+    while (cache.size > TTS_CACHE_MAX) {
+      cache.delete(cache.keys().next().value);
+    }
+  };
+
+  const fetchTTSAudio = useCallback(async (text, priority = TTS_PRIORITY_LIVE) => {
+    const s = settingsRef.current;
+    // What gets spoken is not what gets displayed: tags, stage directions and
+    // emoji are stripped here so Kokoro never has to phonemise them.
+    const spoken = sanitizeForTTS(text);
+    if (!spoken) return null;
+
+    if (!s.kokoroUrl) {
+      setTtsError('No Kokoro URL set — add one in Settings to hear the voice.');
+      return null;
+    }
+
+    const epoch = ttsEpochRef.current;
+    const voice = s.kokoroVoice || 'af_bella';
+    const speed = Number(s.ttsSpeed) || 1;
+    const cacheKey = `${voice}|${speed}|${spoken}`;
+
+    const cached = ttsCacheRef.current.get(cacheKey);
+    if (cached) {
+      // Refresh recency, then hand out a fresh object URL — the previous one is
+      // revoked as soon as its playback ends.
+      ttsCacheRef.current.delete(cacheKey);
+      ttsCacheRef.current.set(cacheKey, cached);
+      return trackBlobUrl(URL.createObjectURL(cached));
+    }
+
+    await acquireTtsSlot(priority);
+
+    // Queued behind synthesis that was still running when STOP was pressed.
+    if (epoch !== ttsEpochRef.current) {
+      releaseTtsSlot();
+      return null;
+    }
+
+    const controller = new AbortController();
+    ttsAbortsRef.current.add(controller);
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          text, 
-          ttsProvider: s.ttsProvider,
-          googleApiKey: s.googleApiKey, 
-          googleTtsType: s.googleTtsType, 
-          googleVoice: s.googleVoice,
+        body: JSON.stringify({
+          text: spoken,
           kokoroUrl: s.kokoroUrl,
-          kokoroVoice: s.kokoroVoice
-        })
+          kokoroVoice: voice,
+          ttsSpeed: speed,
+        }),
+        signal: controller.signal,
       });
-      if (!res.ok) throw new Error('TTS fetch failed');
-      const blobUrl = URL.createObjectURL(await res.blob());
-      activeBlobUrlsRef.current.add(blobUrl);
-      return blobUrl;
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(detail?.error || `Kokoro returned ${res.status}`);
+      }
+      const blob = await res.blob();
+      cacheTtsBlob(cacheKey, blob);
+      setTtsError('');
+      return trackBlobUrl(URL.createObjectURL(blob));
     } catch (err) {
+      // A cancelled request is a deliberate STOP, not a fault worth reporting.
+      if (err.name === 'AbortError') return null;
       console.error('TTS Fetch Error:', err);
+      setTtsError(String(err.message || err).slice(0, 200));
       return null;
     } finally {
-      ttsInFlightRef.current -= 1;
-      // Release the next waiter
-      const next = ttsWaitQueueRef.current.shift();
-      if (next) next();
+      ttsAbortsRef.current.delete(controller);
+      releaseTtsSlot();
     }
-  };
+  }, []);
+
+  // Cancel everything Kokoro is still working on, and free any waiter that will
+  // never get a slot. Without this a STOP leaves the engine synthesising audio
+  // for a scene that no longer exists, slowing down whatever comes next.
+  const cancelPendingTTS = useCallback(() => {
+    ttsEpochRef.current += 1;
+    for (const controller of ttsAbortsRef.current) controller.abort();
+    ttsAbortsRef.current.clear();
+    const waiters = ttsWaitQueueRef.current;
+    ttsWaitQueueRef.current = [];
+    ttsInFlightRef.current = 0;
+    for (const waiter of waiters) waiter.resolve();
+  }, []);
 
   const emergencyStop = useCallback(() => {
     setIsActive(false);
@@ -323,6 +509,10 @@ export default function ChatInterface({ settings }) {
       streamAbortRef.current = null;
     }
     isStreamingRef.current = false;
+
+    // 0b. Cancel synthesis in flight or queued, so Kokoro is not still working
+    // on a scene that no longer exists when the next one starts.
+    cancelPendingTTS();
 
     // 1. Clear queue
     audioQueueRef.current = [];
@@ -353,6 +543,9 @@ export default function ChatInterface({ settings }) {
       stopHamp(s.handyKey);
       setHandyState(prev => ({ ...prev, speed: 0 }));
     }
+    // The device was commanded directly, so the de-dupe cache no longer
+    // reflects it — clear it or the next identical tag would be skipped.
+    lastDeviceRef.current = { speed: null, stroke: null };
 
     // 5. Reset button pre-cache
     climaxPrefetchRef.current = { status: 'idle', text: '', audioUrlPromise: null };
@@ -365,7 +558,7 @@ export default function ChatInterface({ settings }) {
       URL.revokeObjectURL(url);
     }
     activeBlobUrlsRef.current.clear();
-  }, []);
+  }, [cancelPendingTTS]);
 
   const handleFinishClick = () => {
     const s = settingsRef.current;
@@ -414,6 +607,7 @@ export default function ChatInterface({ settings }) {
         setStrokeZone(s.handyKey, 0, 100);
       }
       setHandyState({ speed: 80, stroke: 100 });
+      lastDeviceRef.current = { speed: 80, stroke: 100 };
       setFinishState('finishing');
 
       const used = injectPreCache(
@@ -430,6 +624,7 @@ export default function ChatInterface({ settings }) {
         setStrokeZone(s.handyKey, 0, 40);
       }
       setHandyState({ speed: 20, stroke: 40 });
+      lastDeviceRef.current = { speed: 20, stroke: 40 };
       setFinishState('idle');
 
       const used = injectPreCache(
@@ -527,12 +722,12 @@ export default function ChatInterface({ settings }) {
     climaxPrefetchRef.current = {
       status: climaxText ? 'ready' : 'idle',
       text: climaxText,
-      audioUrlPromise: climaxText ? fetchTTSAudio(climaxText) : null,
+      audioUrlPromise: climaxText ? fetchTTSAudio(climaxText, TTS_PRIORITY_PREFETCH) : null,
     };
     donePrefetchRef.current = {
       status: doneText ? 'ready' : 'idle',
       text: doneText,
-      audioUrlPromise: doneText ? fetchTTSAudio(doneText) : null,
+      audioUrlPromise: doneText ? fetchTTSAudio(doneText, TTS_PRIORITY_PREFETCH) : null,
     };
 
     isPrefetchingRef.current = false;
@@ -652,19 +847,30 @@ export default function ChatInterface({ settings }) {
       const item = audioQueueRef.current.shift();
       const s = settingsRef.current;
 
+      // Only the final value of each type matters — the intermediate ones would
+      // be overwritten within milliseconds — and re-sending a value the device
+      // already holds just burns through the handyfeeling rate limit.
       const executeActions = () => {
+        if (!item.actions || item.actions.length === 0) return;
+
+        let speed = null;
+        let stroke = null;
         for (const action of item.actions) {
-          if (action.type === 'SPEED') {
-            if (action.val === 0) {
-              stopHamp(s.handyKey);
-            } else {
-              setSpeed(s.handyKey, action.val);
-            }
-            setHandyState(prev => ({ ...prev, speed: action.val }));
-          } else if (action.type === 'STROKE') {
-            setStrokeZone(s.handyKey, 0, action.val);
-            setHandyState(prev => ({ ...prev, stroke: action.val }));
-          }
+          if (action.type === 'SPEED') speed = action.val;
+          else if (action.type === 'STROKE') stroke = action.val;
+        }
+
+        // Stroke zone first, so a speed change lands on the intended depth.
+        if (stroke !== null && stroke !== lastDeviceRef.current.stroke) {
+          setStrokeZone(s.handyKey, 0, stroke);
+          lastDeviceRef.current.stroke = stroke;
+          setHandyState(prev => ({ ...prev, stroke }));
+        }
+        if (speed !== null && speed !== lastDeviceRef.current.speed) {
+          if (speed === 0) stopHamp(s.handyKey);
+          else setSpeed(s.handyKey, speed);
+          lastDeviceRef.current.speed = speed;
+          setHandyState(prev => ({ ...prev, speed }));
         }
       };
 
@@ -786,10 +992,15 @@ export default function ChatInterface({ settings }) {
     streamAbortRef.current = abortController;
 
     if (!isFirst && !overridePrompt) {
-        // Short breath between scenes — generation is already started early by processAudioQueue
-        // so by the time this 400ms elapses, next sentences are usually already buffered.
-        audioQueueRef.current.push({ text: '', isSceneDelay: true, delayMs: 400, actions: [] });
-        processAudioQueue();
+        // Breath between scenes. This is the Scene Delay slider in Settings,
+        // which used to be saved and displayed but never read — the pause was
+        // hardcoded to 400ms no matter where the slider sat.
+        const configured = parseFloat(settingsRef.current.sceneDelay);
+        const delayMs = Math.round((Number.isFinite(configured) ? configured : 2.5) * 1000);
+        if (delayMs > 0) {
+            audioQueueRef.current.push({ text: '', isSceneDelay: true, delayMs, actions: [] });
+            processAudioQueue();
+        }
     }
 
     let apiMessages = [];
@@ -813,8 +1024,12 @@ export default function ChatInterface({ settings }) {
         apiMessages.push(userMessage);
     }
 
-    // Record the index this new message will occupy BEFORE appending it
-    nextMsgIdxRef.current = messagesRef.current.length;
+    // Record the index this new message will occupy BEFORE appending it, and
+    // write every later update to that index. Targeting "the last message"
+    // instead put the stream's tokens into whatever message happened to be
+    // appended meanwhile — the Climax pre-cache injects one exactly there.
+    const msgIdx = messagesRef.current.length;
+    nextMsgIdxRef.current = msgIdx;
     setMessages(prev => [...prev, { role: 'assistant', text: '' }]);
     
     try {
@@ -848,6 +1063,36 @@ export default function ChatInterface({ settings }) {
         let ttsBuffer = '';
         let textToDisplay = '';
         let currentActions = [];
+        // Chunk sizing. The first chunk of a scene is deliberately smaller: it
+        // is the one the listener is waiting on, and synthesis time scales with
+        // length (0.8s for a few words, ~4s for a full sentence on CPU). Later
+        // chunks use the configured size, which is what keeps the voice smooth.
+        const minChars = Math.max(20, Number(s.ttsChunkChars) || 120);
+        const maxChars = Math.max(minChars * 2, 400);
+        const firstMinChars = Math.min(minChars, 60);
+        let chunksQueued = 0;
+
+        // Actions are attached to the first chunk that follows them and cleared
+        // straight away, so a chunk carries only the tags that became current
+        // since the previous one.
+        const queueChunks = (chunks) => {
+            for (const chunk of chunks) {
+                pushToAudioQueue({ text: chunk, actions: currentActions });
+                currentActions = [];
+                chunksQueued += 1;
+            }
+        };
+
+        // Repainting on every token re-renders the whole transcript; budget it.
+        let lastDisplayFlush = 0;
+        const flushDisplay = (force) => {
+            const now = Date.now();
+            if (!force && now - lastDisplayFlush < DISPLAY_THROTTLE_MS) return;
+            lastDisplayFlush = now;
+            const text = textToDisplay;
+            setMessages(prev => prev.map((m, i) => (i === msgIdx ? { ...m, text } : m)));
+        };
+
 
         while (true) {
             const { done, value } = await reader.read();
@@ -893,12 +1138,17 @@ export default function ChatInterface({ settings }) {
                                 const type = match[1];
                                 const val = parseInt(match[2], 10);
 
-                                // In tagChange mode, flush accumulated text with OLD actions
-                                // before the tag change takes effect
-                                const cmode = settingsRef.current.ttsChunking || 'sentence';
-                                if (cmode === 'tagChange' && currentActions.length > 0 && ttsBuffer.trim().length > 0) {
-                                    pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
-                                    ttsBuffer = '';
+                                // Text written before this tag belongs to the
+                                // actions already in force, so it is flushed
+                                // here and the new tag starts a fresh group.
+                                // This is also what bounds the action list: it
+                                // used to accumulate for the whole scene, so
+                                // every later chunk replayed every speed and
+                                // stroke tag seen so far at the device.
+                                if (ttsBuffer.trim().length > 0) {
+                                    const flushed = takeChunks(ttsBuffer, minChars, maxChars, true);
+                                    ttsBuffer = flushed.rest;
+                                    queueChunks(flushed.chunks);
                                 }
 
                                 currentActions.push({ type, val });
@@ -913,61 +1163,19 @@ export default function ChatInterface({ settings }) {
                         }
                     }
 
-                    // Drain chunks from the ttsBuffer according to the active chunking strategy
-                    const chunkingMode = settingsRef.current.ttsChunking || 'sentence';
+                    // Drain whatever is speakable, coalescing short sentences
+                    // into chunks worth a synthesis call. The first chunk of the
+                    // scene uses a smaller threshold so speech starts sooner.
+                    const drained = takeChunks(
+                        ttsBuffer,
+                        chunksQueued === 0 ? firstMinChars : minChars,
+                        maxChars,
+                        false,
+                    );
+                    ttsBuffer = drained.rest;
+                    queueChunks(drained.chunks);
 
-                    if (chunkingMode === 'sentence') {
-                      // Per-sentence: split at punctuation boundaries
-                      let bm;
-                      while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
-                        const boundaryIndex = bm.index + bm[1].length;
-                        const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
-                        ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
-                        if (sentence.length > 0) {
-                          pushToAudioQueue({ text: sentence, actions: [...currentActions] });
-                          currentActions = [];
-                        }
-                      }
-                    } else if (chunkingMode === 'tagChange') {
-                      // Per-tag-change: accumulate text; only push when actions change
-                      // (The tag parsing above already updates currentActions.
-                      //  We push accumulated text when a new tag group is detected.)
-                      // The pushing happens in the bracket parsing loop above:
-                      // when we find a HANDY tag, we push any accumulated ttsBuffer
-                      // before the tag, then start a new accumulation for the post-tag text.
-                      // BUT: we also want to drain sentence boundaries within each tag group
-                      // for better streaming responsiveness — so we still split on sentences
-                      // but only reset actions when a tag change occurs.
-                      let bm;
-                      while ((bm = ttsBuffer.match(/([.!?\n;])\s+/))) {
-                        const boundaryIndex = bm.index + bm[1].length;
-                        const sentence = ttsBuffer.substring(0, boundaryIndex).trim();
-                        ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
-                        if (sentence.length > 0) {
-                          pushToAudioQueue({ text: sentence, actions: [...currentActions] });
-                          // Keep currentActions — don't reset for tagChange mode
-                        }
-                      }
-                    } else if (chunkingMode === 'paragraph') {
-                      // Per-paragraph: split on newline boundaries.
-                      // LLMs typically separate paragraphs with one or more newlines.
-                      let bm;
-                      while ((bm = ttsBuffer.match(/\n/))) {
-                        const boundaryIndex = bm.index + bm[0].length;
-                        const paragraph = ttsBuffer.substring(0, bm.index).trim();
-                        ttsBuffer = ttsBuffer.substring(boundaryIndex).trimStart();
-                        if (paragraph.length > 0) {
-                          pushToAudioQueue({ text: paragraph, actions: [...currentActions] });
-                          currentActions = [];
-                        }
-                      }
-                    }
-
-                    setMessages(prev => {
-                        const updated = [...prev];
-                        updated[updated.length - 1].text = textToDisplay;
-                        return updated;
-                    });
+                    flushDisplay(false);
 
             }
         }
@@ -979,29 +1187,17 @@ export default function ChatInterface({ settings }) {
             if (payload !== '[DONE]') streamBuffer += deltaFromPayload(payload);
         }
 
-        const chunkingMode = settingsRef.current.ttsChunking || 'sentence';
-
         if (isActiveRef.current && streamBuffer) {
             ttsBuffer += streamBuffer;
             textToDisplay += streamBuffer;
-            setMessages(prev => {
-                const updated = [...prev];
-                updated[updated.length - 1].text = textToDisplay;
-                return updated;
-            });
         }
+        flushDisplay(true);
 
+        // Nothing more is coming, so the tail is spoken whatever its length.
         if (isActiveRef.current && ttsBuffer.trim().length > 0) {
-            if (chunkingMode === 'paragraph') {
-              // Push the remaining paragraph as the last TTS call, with all actions
-              pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
-            } else if (chunkingMode === 'tagChange') {
-              // Push any remaining text with the last set of actions
-              pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
-            } else {
-              // sentence mode: push leftover (no actions remain at this point normally)
-              pushToAudioQueue({ text: ttsBuffer.trim(), actions: [...currentActions] });
-            }
+            const tail = takeChunks(ttsBuffer, minChars, maxChars, true);
+            ttsBuffer = tail.rest;
+            queueChunks(tail.chunks);
         }
         
     } catch (err) {
@@ -1090,6 +1286,20 @@ export default function ChatInterface({ settings }) {
           </button>
         </div>
       </div>
+
+      {ttsError && (
+        <div className="px-4 py-2 bg-amber-100 dark:bg-amber-900/30 border-b border-amber-300 dark:border-amber-800 flex items-center justify-between gap-3 z-10">
+          <span className="text-sm text-amber-800 dark:text-amber-300">
+            <strong>Voice unavailable:</strong> {ttsError} Scenes keep playing as text.
+          </span>
+          <button
+            onClick={() => setTtsError('')}
+            className="text-xs font-semibold text-amber-700 dark:text-amber-400 hover:underline whitespace-nowrap"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {selectedPersona.id === 'custom' && (
         <div className="bg-gray-100 dark:bg-gray-800/50 border-b dark:border-gray-700 px-4 py-4 flex flex-col space-y-4 z-0">

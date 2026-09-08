@@ -52,6 +52,13 @@ app.post('/api/chat', async (req, res) => {
         return res.status(400).json({ error: 'LLM URL is required' });
     }
 
+    // The browser aborts this request whenever a scene is cut short (STOP,
+    // Climax, a new scene taking over). Propagate that upstream instead of
+    // reading the rest of a stream that is already discarded and paid for.
+    const controller = new AbortController();
+    const onClientGone = () => controller.abort();
+    res.on('close', onClientGone);
+
     try {
         const headers = {
             'Content-Type': 'application/json',
@@ -75,7 +82,8 @@ app.post('/api/chat', async (req, res) => {
                     ...messages
                 ],
                 stream: true,
-            })
+            }),
+            signal: controller.signal
         });
 
         if (!response.ok) {
@@ -91,13 +99,21 @@ app.post('/api/chat', async (req, res) => {
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            res.write(value);
+            if (res.writableEnded) { await reader.cancel(); break; }
+            // Respect backpressure so a slow client cannot balloon the send buffer.
+            if (!res.write(value)) {
+                await new Promise(resolve => res.once('drain', resolve));
+            }
         }
-        res.end();
+        if (!res.writableEnded) res.end();
 
     } catch (error) {
+        if (controller.signal.aborted) return; // client hung up, nothing to report
         console.error('Chat API Error:', error);
-        res.status(500).json({ error: 'Failed to communicate with LLM API' });
+        if (!res.headersSent) res.status(500).json({ error: 'Failed to communicate with LLM API' });
+        else res.end();
+    } finally {
+        res.off('close', onClientGone);
     }
 });
 
@@ -229,59 +245,64 @@ app.post('/api/settings', (req, res) => {
     }
 });
 
-// TTS Endpoint
+// TTS Endpoint (Kokoro only)
+// Upstream calls get an abort signal for two reasons: the browser drops the
+// request on STOP, and Kokoro can stall. Without it the engine keeps
+// synthesising audio nobody will ever hear, which is what made a stopped scene
+// slow down the next one.
+const TTS_TIMEOUT_MS = 30000;
+
 app.post('/api/tts', async (req, res) => {
+    const { text, kokoroUrl, kokoroVoice, ttsSpeed } = req.body;
+
+    if (!kokoroUrl) return res.status(400).json({ error: 'Missing Kokoro URL' });
+    if (!text || !String(text).trim()) return res.status(400).json({ error: 'Missing text' });
+
+    const speed = Math.min(2, Math.max(0.5, parseFloat(ttsSpeed) || 1));
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TTS_TIMEOUT_MS);
+    const onClientGone = () => controller.abort();
+    res.on('close', onClientGone);
+
     try {
-        const { text, ttsProvider, googleApiKey, googleTtsType = 'Neural2', googleVoice = 'F', kokoroUrl, kokoroVoice } = req.body;
-        
-        if (ttsProvider === 'Kokoro') {
-            if (!kokoroUrl) return res.status(400).json({ error: 'Missing Kokoro URL' });
-            
-            const response = await fetch(kokoroUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    model: 'kokoro',
-                    input: text,
-                    voice: kokoroVoice || 'af_bella',
-                    response_format: 'mp3'
-                })
+        const response = await fetch(kokoroUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                model: 'kokoro',
+                input: text,
+                voice: kokoroVoice || 'af_bella',
+                speed,
+                response_format: 'mp3'
+            }),
+            signal: controller.signal
+        });
+
+        if (!response.ok) {
+            // Pass Kokoro's own message through: a generic 500 makes a bad URL,
+            // an unknown voice and a dead container all look identical.
+            const errText = await response.text().catch(() => '');
+            return res.status(response.status).json({
+                error: (errText || `Kokoro TTS error ${response.status}`).slice(0, 500)
             });
-            
-            if (!response.ok) {
-                const errText = await response.text();
-                throw new Error(errText || 'Kokoro TTS Error');
-            }
-            
-            const arrayBuffer = await response.arrayBuffer();
-            const audioBuffer = Buffer.from(arrayBuffer);
-            res.set('Content-Type', 'audio/mpeg');
-            res.send(audioBuffer);
-            
-        } else {
-            if (!googleApiKey) return res.status(400).json({ error: 'Missing Google API Key' });
-
-            const voiceName = `en-US-${googleTtsType}-${googleVoice}`;
-
-            const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${googleApiKey}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    input: { text },
-                    voice: { languageCode: 'en-US', name: voiceName },
-                    audioConfig: { audioEncoding: 'MP3', speakingRate: 0.9 }
-                })
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error?.message || 'TTS Error');
-
-            const audioBuffer = Buffer.from(data.audioContent, 'base64');
-            res.set('Content-Type', 'audio/mpeg');
-            res.send(audioBuffer);
         }
+
+        const audioBuffer = Buffer.from(await response.arrayBuffer());
+        res.set('Content-Type', 'audio/mpeg');
+        res.send(audioBuffer);
+
     } catch (error) {
+        if (controller.signal.aborted) {
+            // Client hung up, or we timed out. Nothing useful to send back.
+            if (!res.headersSent) res.status(504).json({ error: 'Kokoro TTS timed out' });
+            return;
+        }
         console.error('TTS Error:', error);
-        res.status(500).json({ error: error.message });
+        if (!res.headersSent) res.status(502).json({ error: `Kokoro unreachable: ${error.message}` });
+    } finally {
+        clearTimeout(timeout);
+        res.off('close', onClientGone);
     }
 });
 

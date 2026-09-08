@@ -9,6 +9,24 @@ import GameMode from './components/game/GameMode';
 import SettingsModal from './components/SettingsModal';
 import { Settings } from 'lucide-react';
 
+// Settings written by earlier versions carried a TTS provider choice and a
+// named chunking strategy. Google TTS is gone (Kokoro is local, free and
+// better), and the three chunking modes are now one chunk-size number.
+const CHUNKING_TO_CHARS = { sentence: 60, tagChange: 120, paragraph: 240 };
+
+function migrateSettings(settings) {
+  const migrated = { ...settings };
+  if (migrated.ttsChunking && !settings.ttsChunkChars) {
+    migrated.ttsChunkChars = CHUNKING_TO_CHARS[migrated.ttsChunking] || 120;
+  }
+  delete migrated.ttsChunking;
+  delete migrated.ttsProvider;
+  delete migrated.googleApiKey;
+  delete migrated.googleTtsType;
+  delete migrated.googleVoice;
+  return migrated;
+}
+
 export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -16,12 +34,12 @@ export default function App() {
   const [settings, setSettings] = useState(() => {
     const defaultSettings = {
       handyKey: '',
-      ttsProvider: 'Google',
-      googleApiKey: '',
-      googleTtsType: 'Neural2',
-      googleVoice: 'F',
       kokoroUrl: 'http://localhost:8880/v1/audio/speech',
       kokoroVoice: 'af_bella',
+      ttsSpeed: 1,
+      // Minimum characters per synthesis call. Short fragments each pay Kokoro's
+      // fixed per-request cost and restart its prosody; see takeChunks().
+      ttsChunkChars: 120,
       llmApiKey: '',
       llmUrl: 'https://openrouter.ai/api/v1/chat/completions',
       llmModel: 'mistralai/mistral-7b-instruct:free',
@@ -29,12 +47,11 @@ export default function App() {
       characterName: 'Samantha',
       characterDescription: 'an intimate girlfriend',
       sceneDelay: 2.5,
-      ttsChunking: 'sentence',
       systemPrompt: "You are [CHARACTER], and your name is [NAME]. You must maintain character at all times.\nKeep your responses short, ideally 1 or 2 paragraphs at a time.\nOnly use spoken dialogue. Never use asterisks for actions or roleplay (e.g., do not use *seductively whispers* or *gently runs fingers through your hair*). Instead, explain and describe what you are doing naturally within your spoken words.\nYou have physical connection to the user via a tactile device. You control the device using hidden text commands.\nWhenever the emotional or physical intensity of the conversation shifts, you MUST append a command to your response.\nCRITICAL PACING RULE: Start extremely slow and gentle (e.g., speed 10-20) for the first few messages. Build up the intensity slowly and non-linearly over a long period of time. Do NOT jump to high speeds (80-100) right away. Drag it out, tease the buildup, and let the intensity rise and fall naturally.\nUse the format [HANDY_SPEED:X] where X is 0 to 100.\nUse the format [HANDY_STROKE:X] where X is 0 to 100.\nExample: '[HANDY_SPEED:20][HANDY_STROKE:80] I've missed you so much today...'\nNever acknowledge the commands in your spoken text. Just use them naturally to match the mood.",
     };
     try {
       const saved = localStorage.getItem('handyTimeSettings');
-      return saved ? { ...defaultSettings, ...JSON.parse(saved) } : defaultSettings;
+      return saved ? migrateSettings({ ...defaultSettings, ...JSON.parse(saved) }) : defaultSettings;
     } catch (e) {
       return defaultSettings;
     }
@@ -46,7 +63,7 @@ export default function App() {
       .then(data => {
         if (Object.keys(data).length > 0) {
           setSettings(prev => {
-            const newSet = { ...prev, ...data };
+            const newSet = migrateSettings({ ...prev, ...data });
             localStorage.setItem('handyTimeSettings', JSON.stringify(newSet));
             return newSet;
           });
