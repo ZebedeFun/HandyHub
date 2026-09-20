@@ -5,7 +5,7 @@ import GenerationControls from './GenerationControls';
 import Heatmap from './Heatmap';
 import DeviceSimulator from './DeviceSimulator';
 import ScrollingTimeline from './ScrollingTimeline';
-import { generateProceduralScript, generatePartialScript, modifyPartialScript } from '../../services/scriptGenerator';
+import { generateProceduralScript, generatePartialScript, modifyPartialScript, buildTapActions } from '../../services/scriptGenerator';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
 import { analyzeAudioFile, generateAudioScript, DEFAULT_AUDIO_PARAMS } from '../../services/audioScriptGenerator';
 import { downloadFunscript } from '../../services/funscriptFile';
@@ -58,26 +58,43 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const [history, setHistory] = useState({ past: [], present: null, future: [] });
   const funscript = history.present;
 
-  const commitFunscript = (next) => setHistory(h => ({
-    past: [...h.past, h.present].slice(-MAX_HISTORY),
-    present: next,
-    future: [],
-  }));
+  // A run of small edits of the same kind — arrow-key nudges, repeated taps on
+  // a shift button — is one act as far as the user is concerned. Without this
+  // a dozen nudges push a dozen states, and Ctrl+Z has to be held down to get
+  // back anywhere useful.
+  const COALESCE_MS = 900;
+  const lastCommitRef = useRef({ key: null, time: 0 });
+
+  const commitFunscript = (next, coalesceKey) => {
+    const now = Date.now();
+    const last = lastCommitRef.current;
+    const coalesce = coalesceKey && last.key === coalesceKey && now - last.time < COALESCE_MS;
+    lastCommitRef.current = { key: coalesceKey || null, time: now };
+    setHistory(h => (coalesce
+      ? { ...h, present: next, future: [] }
+      : { past: [...h.past, h.present].slice(-MAX_HISTORY), present: next, future: [] }));
+  };
 
   // Starting over (a new video) drops the history rather than adding to it.
   const resetFunscript = (next) => setHistory({ past: [], present: next, future: [] });
 
-  const undo = () => setHistory(h => h.past.length === 0 ? h : ({
+  const undo = () => {
+    lastCommitRef.current = { key: null, time: 0 };
+    setHistory(h => h.past.length === 0 ? h : ({
     past: h.past.slice(0, -1),
     present: h.past[h.past.length - 1],
     future: [h.present, ...h.future],
   }));
+  };
 
-  const redo = () => setHistory(h => h.future.length === 0 ? h : ({
+  const redo = () => {
+    lastCommitRef.current = { key: null, time: 0 };
+    setHistory(h => h.future.length === 0 ? h : ({
     past: [...h.past, h.present].slice(-MAX_HISTORY),
     present: h.future[0],
     future: h.future.slice(1),
   }));
+  };
 
   useEffect(() => {
     const onKey = (e) => {
@@ -93,6 +110,19 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     return () => window.removeEventListener('keydown', onKey);
   });
   const [syncToHandy, setSyncToHandy] = useState(false);
+
+  // Tap-to-script. The taps themselves live in a ref because the key handler
+  // has to read the ones already taken without being rebuilt on every press;
+  // the state copy is only there to draw the preview.
+  const [isRecording, setIsRecording] = useState(false);
+  const [tapStyle, setTapStyle] = useState('alternate');
+  const [tapOffsetMs, setTapOffsetMs] = useState(0);
+  const [pendingTaps, setPendingTaps] = useState([]);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const tapsRef = useRef([]);
+  // Net shift applied to the script so far, shown so a nudge can be undone by
+  // eye rather than by counting clicks.
+  const [shiftedByMs, setShiftedByMs] = useState(0);
   const [isViewingMode, setIsViewingMode] = useState(false);
 
   // The parameter panel is by far the tallest thing on the page, so collapsing
@@ -297,26 +327,29 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     }
   };
 
-  const handleGenerateClick = () => (
-    genMode === 'audio' ? handleGenerateFromAudio() : handleGenerate()
-  );
+  const handleGenerateClick = () => {
+    if (genMode === 'tap') return toggleRecording();
+    return genMode === 'audio' ? handleGenerateFromAudio() : handleGenerate();
+  };
 
   const handleRegenerateSelection = (startMs, endMs) => {
     if (!funscript || !funscript.actions) return;
     const newScript = generatePartialScript(funscript.actions, startMs, endMs, params);
-    commitFunscript(newScript);
+    // Spread over the old script, not in place of it: these helpers return
+    // only `actions`, and a script imported with metadata would lose it.
+    commitFunscript({ ...funscript, ...newScript });
   };
 
   const handleModifySelection = (startMs, endMs, type) => {
     if (!funscript || !funscript.actions) return;
     const newScript = modifyPartialScript(funscript.actions, startMs, endMs, type);
-    commitFunscript(newScript);
+    commitFunscript({ ...funscript, ...newScript });
   };
 
   const handleFixJitterWholeScript = () => {
     if (!funscript || !funscript.actions || !durationMs) return;
     const newScript = modifyPartialScript(funscript.actions, 0, durationMs, 'jitter');
-    commitFunscript(newScript);
+    commitFunscript({ ...funscript, ...newScript });
   };
 
   // Hand edits on the scrolling timeline. The bar hit-tests in pixels and
@@ -336,10 +369,9 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   };
 
   const handleAddPoint = (timeMs, pos) => {
-    if (!funscript || !funscript.actions) return;
     const at = Math.max(0, Math.round(timeMs));
     if (durationMs && at > durationMs) return;
-    const actions = funscript.actions;
+    const actions = (funscript && funscript.actions) || [];
 
     let insertAt = actions.findIndex(a => a.at >= at);
     if (insertAt === -1) insertAt = actions.length;
@@ -353,10 +385,10 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
 
     const newActions = [...actions];
     newActions.splice(insertAt, 0, { at, pos: Math.max(0, Math.min(100, Math.round(pos))) });
-    commitFunscript({ ...funscript, actions: newActions });
+    commitFunscript({ ...(funscript || {}), actions: newActions });
   };
 
-  const handleMovePoint = (index, timeMs, pos) => {
+  const handleMovePoint = (index, timeMs, pos, coalesceKey) => {
     if (!funscript || !funscript.actions) return;
     const actions = funscript.actions;
     if (index < 0 || index >= actions.length) return;
@@ -369,7 +401,102 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
 
     const newActions = [...actions];
     newActions[index] = { ...actions[index], at, pos: Math.max(0, Math.min(100, Math.round(pos))) };
-    commitFunscript({ ...funscript, actions: newActions });
+    commitFunscript({ ...funscript, actions: newActions }, coalesceKey);
+  };
+
+  // --- Tap to script -------------------------------------------------------
+
+  const tapDepth = () => ({
+    bottom: Math.min(params.minStroke, params.maxStroke),
+    top: Math.max(params.minStroke, params.maxStroke),
+  });
+
+  const recordTap = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    // The offset is applied as the tap is taken, so the preview shows where
+    // the point will actually land rather than where the finger landed.
+    const at = Math.max(0, Math.round(video.currentTime * 1000 + tapOffsetMs));
+    const taps = tapsRef.current;
+    // A key repeat or a double-triggered button is not a stroke.
+    if (taps.length && Math.abs(at - taps[taps.length - 1]) < MIN_POINT_GAP_MS) return;
+    taps.push(at);
+    setPendingTaps(buildTapActions(taps, { style: tapStyle, ...tapDepth() }));
+  };
+
+  const startRecording = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    tapsRef.current = [];
+    setPendingTaps([]);
+    setIsRecording(true);
+    video.play().catch(() => { /* autoplay refused; the user can hit play */ });
+  };
+
+  const stopRecording = () => {
+    setIsRecording(false);
+    if (videoRef.current) videoRef.current.pause();
+
+    const recorded = buildTapActions(tapsRef.current, { style: tapStyle, ...tapDepth() });
+    tapsRef.current = [];
+    setPendingTaps([]);
+    if (recorded.length < 2) return;
+
+    // What was tapped over is replaced, not merged into: tapping a section is
+    // how you say "this bit, again, properly", and leaving the old points in
+    // would interleave two takes.
+    const from = recorded[0].at;
+    const to = recorded[recorded.length - 1].at;
+    const kept = (funscript?.actions || []).filter(a => a.at < from || a.at > to);
+    const merged = [...kept, ...recorded].sort((a, b) => a.at - b.at);
+    commitFunscript({ ...(funscript || {}), actions: merged });
+  };
+
+  const toggleRecording = () => (isRecording ? stopRecording() : startRecording());
+
+  // Space is the tap key, so while recording it must not reach the video and
+  // pause it. Captured on the way down for that reason.
+  useEffect(() => {
+    if (!isRecording) return undefined;
+    const onKey = (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!e.repeat) recordTap();
+      } else if (e.key === 'Escape' || e.key === 'Enter') {
+        e.preventDefault();
+        stopRecording();
+      }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  });
+
+  // Slow motion for sections too quick to keep up with. Tap times are read off
+  // the video's own clock, which does not slow down with it, so a script
+  // tapped at quarter speed lands at full speed without any correction.
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = playbackRate;
+  }, [playbackRate, videoUrl]);
+
+  // A recording that never got a second tap would otherwise leave the video
+  // running after the panel says it stopped.
+  useEffect(() => {
+    if (!videoUrl && isRecording) setIsRecording(false);
+  }, [videoUrl, isRecording]);
+
+  // --- Whole-script timing -------------------------------------------------
+
+  const handleShiftScript = (deltaMs) => {
+    if (!funscript || !funscript.actions || funscript.actions.length === 0) return;
+    const shifted = funscript.actions
+      .map(a => ({ ...a, at: Math.round(a.at + deltaMs) }))
+      .filter(a => a.at >= 0);
+    if (shifted.length < 2) return;
+    setShiftedByMs(prev => prev + deltaMs);
+    commitFunscript({ ...funscript, actions: shifted }, 'shift');
   };
 
   // Download logic. Only the script is required. Requiring a video too meant a
@@ -407,7 +534,21 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
           <button onClick={() => navigate('/')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full transition-colors text-gray-600 dark:text-gray-300">
             <ArrowLeft size={24} />
           </button>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Handy Scripter</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">Handy Scripter</h1>
+            {/* What is loaded. Two videos from the same set are told apart by
+                their filenames and nothing else, and after an hour of editing
+                it is worth being able to check. */}
+            {(videoFile || importedScriptName) && (
+              <p
+                className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate max-w-[16rem] sm:max-w-sm md:max-w-md"
+                title={videoFile?.name || importedScriptName}
+              >
+                {videoFile?.name || importedScriptName}
+                {videoFile && importedScriptName ? ` + ${importedScriptName}` : ''}
+              </p>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-4">
           <label className="flex items-center space-x-2 text-sm cursor-pointer border-r pr-4 border-gray-200 dark:border-gray-700">
@@ -469,7 +610,18 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               audioParams={audioParams}
               setAudioParams={setAudioParams}
               isAnalyzingAudio={isAnalyzingAudio}
-              hasVideo={!!videoFile}
+              hasVideo={!!videoUrl}
+              isRecording={isRecording}
+              tapStyle={tapStyle}
+              setTapStyle={setTapStyle}
+              tapOffsetMs={tapOffsetMs}
+              setTapOffsetMs={setTapOffsetMs}
+              tapCount={pendingTaps.length}
+              playbackRate={playbackRate}
+              setPlaybackRate={setPlaybackRate}
+              onTap={recordTap}
+              onShiftScript={handleShiftScript}
+              shiftedByMs={shiftedByMs}
             />
           </div>
           
@@ -553,18 +705,22 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                 paddingRight: NATIVE_SCRUBBER_INSET_PX,
               }}
             >
-              {funscript ? (
+              {(funscript || isRecording) ? (
                 <>
                   <ScrollingTimeline 
-                    actions={funscript.actions} 
+                    actions={funscript ? funscript.actions : []} 
                     currentTimeMs={currentTimeMs} 
                     isPlaying={isPlaying}
                     videoRef={videoRef}
                     onRemovePoint={handleRemovePoint}
                     onAddPoint={handleAddPoint}
                     onMovePoint={handleMovePoint}
+                    onRegenerateSelection={handleRegenerateSelection}
+                    onModifySelection={handleModifySelection}
+                    pendingActions={pendingTaps}
                   />
                   <div className="h-40">
+                    {funscript ? (
                     <Heatmap 
                       actions={funscript.actions} 
                       durationMs={durationMs} 
@@ -572,6 +728,11 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                       onRegenerateSelection={handleRegenerateSelection}
                       onModifySelection={handleModifySelection}
                     />
+                    ) : (
+                      <div className="w-full h-full bg-gray-200 dark:bg-gray-800 rounded-lg flex items-center justify-center border border-gray-300 dark:border-gray-700 border-dashed">
+                        <p className="text-gray-500 dark:text-gray-400">Tap along — the take appears above</p>
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (

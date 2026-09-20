@@ -1,13 +1,14 @@
 import React from 'react';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves } from 'lucide-react';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs }) {
   const isAudio = mode === 'audio';
+  const isTap = mode === 'tap';
   const isZoned = audioParams?.structure === 'zoned';
 
   // Audio mode needs a soundtrack to read; without a video there is nothing to
   // generate from.
-  const canGenerate = !isAnalyzingAudio && (!isAudio || hasVideo);
+  const canGenerate = !isAnalyzingAudio && ((!isAudio && !isTap) || hasVideo);
 
   const handleAudioChange = (name, value) => setAudioParams(prev => {
     const next = { ...prev, [name]: value };
@@ -93,6 +94,18 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
           </button>
           <button
             type="button"
+            onClick={() => setMode('tap')}
+            title="Tap along with the video and keep what you tapped"
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex flex-1 items-center justify-center gap-1.5 ${
+              isTap
+                ? 'bg-white dark:bg-gray-600 shadow-sm text-amber-600 dark:text-amber-300'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            <Hand size={14} /> Tap
+          </button>
+          <button
+            type="button"
             onClick={() => setMode('audio')}
             title="Build a script from the loaded video's soundtrack"
             className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex flex-1 items-center justify-center gap-1.5 ${
@@ -109,17 +122,27 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
           <button 
             onClick={onGenerate}
             disabled={!canGenerate}
-            title={isAudio && !hasVideo ? 'Load a video first — Audio mode reads its soundtrack' : undefined}
+            title={!hasVideo && (isAudio || isTap)
+              ? (isAudio ? 'Load a video first — Audio mode reads its soundtrack' : 'Load a video first — there is nothing to tap along to')
+              : undefined}
             className={`py-2 px-4 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 lg:w-full ${
               canGenerate
-                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5'
+                ? (isRecording
+                    ? 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 transform hover:-translate-y-0.5'
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5')
                 : 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 cursor-not-allowed shadow-none'
             }`}
           >
-            {isAnalyzingAudio ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+            {isAnalyzingAudio
+              ? <Loader2 size={16} className="animate-spin" />
+              : isRecording
+                ? <Square size={16} />
+                : isTap ? <Circle size={16} /> : <Play size={16} />}
             {isAnalyzingAudio
               ? 'Analyzing Audio…'
-              : isAudio ? 'Generate from Audio' : 'Generate Complete Script'}
+              : isTap
+                ? (isRecording ? `Stop & Apply (${tapCount})` : 'Record Taps')
+                : isAudio ? 'Generate from Audio' : 'Generate Complete Script'}
           </button>
           
           <div className="flex items-center gap-1 mr-1">
@@ -175,10 +198,35 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
             <Download size={16} />
             Download
           </button>
+
+          {/* Whole-script timing. A script that is right but late — an import,
+              or a take tapped a beat behind — needs sliding, not rebuilding. */}
+          <div className="flex items-center gap-1 w-full">
+            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mr-1 shrink-0">Shift</span>
+            {[[-100, ChevronsLeft, '100ms earlier'], [-10, ChevronLeft, '10ms earlier'],
+              [10, ChevronRight, '10ms later'], [100, ChevronsRight, '100ms later']].map(([delta, Icon, label]) => (
+              <button
+                key={delta}
+                onClick={() => onShiftScript(delta)}
+                disabled={!canDownload}
+                title={`Move the whole script ${label}`}
+                className={`p-1.5 rounded-lg border transition-all ${
+                  canDownload
+                    ? 'bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600'
+                    : 'bg-gray-50 dark:bg-gray-800/50 text-gray-300 dark:text-gray-600 cursor-not-allowed border-transparent'
+                }`}
+              >
+                <Icon size={14} />
+              </button>
+            ))}
+            <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500 ml-1 tabular-nums">
+              {shiftedByMs > 0 ? `+${shiftedByMs}` : shiftedByMs}ms
+            </span>
+          </div>
         </div>
       </div>
 
-      {!collapsed && !isAudio && (
+      {!collapsed && !isAudio && !isTap && (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-6 overflow-y-auto min-h-0 pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
         
         {/* Section 1: Behavior */}
@@ -621,6 +669,117 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 Volume maps to stroke duration: 100% is a 150ms stroke, 0% a 2s one. Generating drops the
                 result into the history below, so the heatmap tools, undo and Download all apply.
               </p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      )}
+
+      {!collapsed && isTap && (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-6 overflow-y-auto min-h-0 pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
+
+        <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
+          <SectionTitle icon={Hand} title="Tap Along" />
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">What one tap means</label>
+              <div className="flex bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setTapStyle('alternate')}
+                  className={`px-2 py-1.5 text-xs font-medium rounded-lg transition-colors flex-1 ${
+                    tapStyle === 'alternate'
+                      ? 'bg-white dark:bg-gray-600 shadow-sm text-amber-600 dark:text-amber-300'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  }`}
+                >
+                  Every turn
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTapStyle('beat')}
+                  className={`px-2 py-1.5 text-xs font-medium rounded-lg transition-colors flex-1 ${
+                    tapStyle === 'beat'
+                      ? 'bg-white dark:bg-gray-600 shadow-sm text-amber-600 dark:text-amber-300'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+                  }`}
+                >
+                  Every stroke
+                </button>
+              </div>
+              <Hint>
+                <b>Every turn</b> takes a tap at each change of direction — two per stroke, and each end lands
+                exactly where you tapped it, so an unhurried pull and a sharp push stay different.
+                <b> Every stroke</b> takes one tap per stroke and puts the return halfway to your next tap:
+                half the tapping, but every stroke comes out even.
+              </Hint>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Playback Speed</label>
+                <span className="text-xs font-mono text-amber-500">{playbackRate}×</span>
+              </div>
+              <div className="flex gap-1">
+                {[1, 0.75, 0.5, 0.35, 0.25].map(rate => (
+                  <button
+                    key={rate}
+                    type="button"
+                    onClick={() => setPlaybackRate(rate)}
+                    className={`flex-1 px-1 py-1.5 text-xs font-mono rounded-lg border transition-colors ${
+                      playbackRate === rate
+                        ? 'bg-amber-500 text-white border-amber-500'
+                        : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600'
+                    }`}
+                  >
+                    {rate}×
+                  </button>
+                ))}
+              </div>
+              <Hint low="Quarter speed: four times as long to react" high="Full speed">
+                Slow the video down for a fast section. Taps are timed against the video's own clock, so a
+                section tapped at quarter speed plays back at full speed exactly where you put it.
+              </Hint>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Tap Offset</label>
+                <span className="text-xs font-mono text-amber-500">{tapOffsetMs > 0 ? `+${tapOffsetMs}` : tapOffsetMs}ms</span>
+              </div>
+              <input
+                type="range" min="-400" max="200" step="10"
+                value={tapOffsetMs}
+                onChange={(e) => setTapOffsetMs(parseInt(e.target.value, 10))}
+                className="w-full accent-amber-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              />
+              <Hint low="-400ms: for a heavy hand" high="+200ms">
+                Taken off every tap as it lands. Nobody taps on the instant they see something, so if the take
+                comes out consistently behind the action, wind this back until it sits right.
+              </Hint>
+            </div>
+
+            <div className="pt-3 border-t border-gray-200 dark:border-gray-700/50">
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); if (isRecording) onTap(); }}
+                onTouchStart={(e) => { e.preventDefault(); if (isRecording) onTap(); }}
+                disabled={!isRecording}
+                className={`w-full py-6 rounded-xl text-lg font-bold transition-colors select-none ${
+                  isRecording
+                    ? 'bg-amber-500 hover:bg-amber-400 active:bg-amber-600 text-white shadow-md'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-600 cursor-not-allowed'
+                }`}
+              >
+                {isRecording ? `TAP  ·  ${tapCount} point${tapCount === 1 ? '' : 's'}` : 'Press Record to start'}
+              </button>
+              <Hint>
+                Space is the same button and leaves your eyes on the video; Esc stops. Stroke depth comes from
+                Min and Max Depth on the Parameters tab. What you tap over replaces whatever was there, and
+                arrives as one undo step.
+              </Hint>
             </div>
           </div>
         </div>

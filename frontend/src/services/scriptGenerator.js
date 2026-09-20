@@ -3,7 +3,7 @@
 // Without it, short strokes (a narrow depth zone, or a low Max Length) used to
 // produce 10+ cycles/sec — scripts the hardware simply smears through.
 export const MAX_CYCLES_PER_SEC = 5;
-const MIN_GAP_MS = 1000 / (MAX_CYCLES_PER_SEC * 2);
+export const MIN_GAP_MS = 1000 / (MAX_CYCLES_PER_SEC * 2);
 const MAX_GAP_MS = 4000;
 
 // Linear carriage speed ceiling in position-units per second, indexed by the
@@ -287,6 +287,14 @@ export function modifyPartialScript(oldActions, startMs, endMs, modifierType) {
     return removeJitter(oldActions, startMs, endMs, 5);
   }
 
+  // Strip a range back to nothing, leaving the points either side to join
+  // across it. A script still has to be a script, so the last two points are
+  // never both taken.
+  if (modifierType === 'clear') {
+    const kept = oldActions.filter(a => a.at < startMs || a.at > endMs);
+    return { actions: kept.length >= 2 ? kept : oldActions };
+  }
+
   let startIndex = -1;
   for (let i = oldActions.length - 1; i >= 0; i--) {
     if (oldActions[i].at <= startMs) { startIndex = i; break; }
@@ -303,7 +311,13 @@ export function modifyPartialScript(oldActions, startMs, endMs, modifierType) {
   let newSegment = [];
   const actualStartMs = segment[0].at;
   const actualEndMs = segment[segment.length - 1].at;
-  if (modifierType === 'higher' || modifierType === 'lower') {
+  if (modifierType === 'invert') {
+    // Mirrored about the segment's own middle, not about 50, so a shallow
+    // section stays shallow instead of leaping to the other end of the range.
+    const lo = Math.min(...segment.map(a => a.pos));
+    const hi = Math.max(...segment.map(a => a.pos));
+    newSegment = segment.map(a => ({ at: a.at, pos: Math.round(lo + hi - a.pos) }));
+  } else if (modifierType === 'higher' || modifierType === 'lower') {
     const offset = modifierType === 'higher' ? 10 : -10;
     newSegment = segment.map(a => ({ at: a.at, pos: Math.max(0, Math.min(100, Math.round(a.pos + offset))) }));
   } else if (modifierType === 'longer' || modifierType === 'shorter') {
@@ -331,3 +345,47 @@ export function modifyPartialScript(oldActions, startMs, endMs, modifierType) {
   return { actions: [...before, ...newSegment, ...after] };
 }
 
+
+/**
+ * Turns a list of tap times into actions.
+ *
+ * Two ways of keeping time with a video, because they suit different footage:
+ *
+ * - 'alternate' — one tap per direction change. Two taps make a stroke, and
+ *   the timing of each end is whatever you tapped, so an unhurried pull and a
+ *   sharp push come out as different lengths. Faithful, but twice the work.
+ * - 'beat' — one tap per stroke. Each tap is the bottom of a stroke and the
+ *   return is placed halfway to the next tap, so a whole stroke costs one
+ *   press. Strokes come out symmetrical, which is the trade for keeping up.
+ *
+ * In 'beat' the last tap has no successor to measure against, so it borrows
+ * the median interval of the taps before it rather than being dropped.
+ *
+ * @param {number[]} tapTimesMs - tap times in ms, in the order they happened.
+ * @param {object} opts
+ * @param {'alternate'|'beat'} opts.style
+ * @param {number} opts.bottom - position at the bottom of a stroke (0-100).
+ * @param {number} opts.top - position at the top of a stroke (0-100).
+ * @returns {{at: number, pos: number}[]} actions, sorted, at least 1ms apart.
+ */
+export function buildTapActions(tapTimesMs, { style = 'alternate', bottom = 0, top = 100 } = {}) {
+  const taps = [...tapTimesMs].sort((a, b) => a - b);
+  if (taps.length === 0) return [];
+
+  let out = [];
+  if (style === 'beat') {
+    const gaps = taps.slice(1).map((t, i) => t - taps[i]).sort((a, b) => a - b);
+    const medianGap = gaps.length ? gaps[Math.floor(gaps.length / 2)] : MIN_GAP_MS * 2;
+    taps.forEach((at, i) => {
+      const nextAt = i + 1 < taps.length ? taps[i + 1] : at + medianGap;
+      out.push({ at: Math.round(at), pos: bottom });
+      out.push({ at: Math.round((at + nextAt) / 2), pos: top });
+    });
+  } else {
+    out = taps.map((at, i) => ({ at: Math.round(at), pos: i % 2 === 0 ? bottom : top }));
+  }
+
+  // Two actions at the same millisecond are not a script the device can read,
+  // and a tap landing on top of its neighbour is a double-press, not a stroke.
+  return out.filter((a, i) => i === 0 || a.at > out[i - 1].at);
+}

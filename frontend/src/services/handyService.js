@@ -18,6 +18,13 @@ export const DEVICE_MAX_MM_PER_SEC = 450;
 // Full travel of the carriage, i.e. what position 0 -> 100 corresponds to.
 export const DEVICE_FULL_STROKE_MM = 125;
 
+// The same ceiling in the units a funscript is written in: position 0 -> 100 is
+// the full travel, so one position unit is DEVICE_FULL_STROKE_MM / 100. A
+// segment steeper than this is asking the carriage to outrun itself, and the
+// device answers by smearing through it.
+export const DEVICE_MAX_UNITS_PER_SEC =
+  DEVICE_MAX_MM_PER_SEC / (DEVICE_FULL_STROKE_MM / 100);
+
 /** HAMP velocity percentage -> carriage speed in mm/s. */
 export const velocityToMmPerSec = (velocity) => {
   const v = Math.min(100, Math.max(0, velocity));
