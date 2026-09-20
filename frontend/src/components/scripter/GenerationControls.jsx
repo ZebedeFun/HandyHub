@@ -1,7 +1,7 @@
 import React from 'react';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2 } from 'lucide-react';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp } from 'lucide-react';
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed }) {
   const handleChange = (e) => {
     const { name, value, type } = e.target;
     
@@ -46,11 +46,20 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
 
   return (
     <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 w-full flex flex-col">
-      <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 pb-3 border-b border-gray-100 dark:border-gray-700 gap-4 shrink-0">
-        <div className="flex items-center gap-2">
+      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0 ${collapsed ? '' : 'mb-4 pb-3 border-b border-gray-100 dark:border-gray-700'}`}>
+        <button
+          type="button"
+          onClick={onToggleCollapsed}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Show the script parameters' : 'Hide the script parameters to give the video more room'}
+          className="flex items-center gap-2 -ml-1 px-1 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
+        >
           <Settings className="text-blue-500" />
           <h2 className="text-lg font-bold text-gray-800 dark:text-white">Script Parameters</h2>
-        </div>
+          {collapsed
+            ? <ChevronDown size={18} className="text-gray-500 dark:text-gray-400" />
+            : <ChevronUp size={18} className="text-gray-500 dark:text-gray-400" />}
+        </button>
         
         <div className="flex items-center gap-2">
           <button 
@@ -117,6 +126,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
         </div>
       </div>
 
+      {!collapsed && (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
         
         {/* Section 1: Behavior */}
@@ -307,6 +317,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
         </div>
 
       </div>
+      )}
     </div>
   );
 }

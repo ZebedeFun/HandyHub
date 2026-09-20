@@ -8,6 +8,24 @@ import ScrollingTimeline from './ScrollingTimeline';
 import { generateProceduralScript, generatePartialScript, modifyPartialScript } from '../../services/scriptGenerator';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
 
+// The device simulator occupies its own w-20 column to the LEFT of the video,
+// so the video element — and with it the browser's native progress bar — starts
+// 80px in from the left edge of the page column. The script graphs underneath
+// are full width, which is why a playhead at 50% of the script sat well left of
+// the video's own 50%. Indenting the graph block by the same amount lines the
+// two up.
+const SIMULATOR_COL_PX = 80;
+
+// Browsers also inset their scrub track a little from the edge of the video
+// element. This is an approximation, not a measurement: the native controls
+// live in a closed shadow root, so there is nothing to measure. It gets the
+// ends within a few pixels; tune this one number if it still looks off.
+const NATIVE_SCRUBBER_INSET_PX = 16;
+
+// The smallest the video is allowed to get before the page scrolls instead of
+// squeezing it further.
+const MIN_VIDEO_PX = 360;
+
 export default function HandyScripter({ isDarkMode, toggleTheme, settings, openSettings }) {
   const navigate = useNavigate();
   const videoRef = useRef(null);
@@ -68,6 +86,27 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   });
   const [syncToHandy, setSyncToHandy] = useState(false);
   const [isViewingMode, setIsViewingMode] = useState(false);
+
+  // The parameter panel is by far the tallest thing on the page, so collapsing
+  // it is the main way to hand the video its room back. Remembered so the
+  // choice survives a reload.
+  const [controlsCollapsed, setControlsCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem('handyscripter.controlsCollapsed') === '1';
+    } catch {
+      return false; // private mode / storage blocked
+    }
+  });
+
+  const toggleControlsCollapsed = () => setControlsCollapsed(prev => {
+    const next = !prev;
+    try {
+      localStorage.setItem('handyscripter.controlsCollapsed', next ? '1' : '0');
+    } catch {
+      // Not worth failing the toggle over.
+    }
+    return next;
+  });
 
   const syncScriptToHandy = async (scriptJson) => {
     if (!settings.handyKey || !scriptJson) return;
@@ -328,8 +367,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-hidden p-4 md:p-6 lg:p-8">
-        <div className="max-w-[100rem] mx-auto h-full flex flex-col gap-6">
+      <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
+        <div className="max-w-[100rem] mx-auto min-h-full flex flex-col gap-4">
           
           {/* Top: Controls */}
           <div className="w-full shrink-0">
@@ -344,11 +383,16 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               onRedo={redo}
               canUndo={history.past.length > 0}
               canRedo={history.future.length > 0}
+              collapsed={controlsCollapsed}
+              onToggleCollapsed={toggleControlsCollapsed}
             />
           </div>
           
           {/* Middle: Video Player Area */}
-          <div className={isViewingMode ? "fixed inset-0 z-50 bg-black flex flex-row group" : "flex-1 min-h-0 bg-black rounded-2xl overflow-hidden relative shadow-lg flex flex-row border border-gray-800 group"}>
+          <div
+            className={isViewingMode ? "fixed inset-0 z-50 bg-black flex flex-row group" : "flex-1 bg-black rounded-2xl overflow-hidden relative shadow-lg flex flex-row border border-gray-800 group"}
+            style={isViewingMode ? undefined : { minHeight: MIN_VIDEO_PX }}
+          >
             {!videoUrl ? (
               <div 
                 className={`text-center p-8 flex flex-col items-center w-full h-full justify-center transition-colors`}
@@ -414,8 +458,14 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
             )}
           </div>
 
-          {/* Bottom: Heatmap Area */}
-          <div className="flex flex-col gap-4 shrink-0 w-full pb-4">
+          {/* Bottom: Heatmap Area, indented to line up with the video scrubber */}
+          <div
+            className="flex flex-col gap-4 shrink-0 w-full pb-4"
+            style={{
+              paddingLeft: (videoUrl && funscript ? SIMULATOR_COL_PX : 0) + NATIVE_SCRUBBER_INSET_PX,
+              paddingRight: NATIVE_SCRUBBER_INSET_PX,
+            }}
+          >
             {funscript ? (
               <>
                 <ScrollingTimeline 
