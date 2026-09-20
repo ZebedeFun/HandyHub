@@ -1,8 +1,9 @@
 import React from 'react';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2 } from 'lucide-react';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves } from 'lucide-react';
 
 export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo }) {
   const isAudio = mode === 'audio';
+  const isZoned = audioParams?.structure === 'zoned';
 
   // Audio mode needs a soundtrack to read; without a video there is nothing to
   // generate from.
@@ -379,6 +380,94 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
 
           <div className="space-y-4">
             <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Structure</label>
+              <div className="flex bg-gray-200 dark:bg-gray-700 p-1 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => handleAudioChange('structure', 'flowing')}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center justify-center gap-1.5 ${
+                    !isZoned
+                      ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  <Waves size={13} /> Flowing
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAudioChange('structure', 'zoned')}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center justify-center gap-1.5 ${
+                    isZoned
+                      ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  <LayoutGrid size={13} /> Zoned
+                </button>
+              </div>
+              <Hint>
+                <b>Flowing</b> re-reads the sound every 50ms, so the pace never settles. <b>Zoned</b> reads
+                each section of the track for its character, commits to a tempo and depth, and holds them
+                steady before gliding to the next — the shape hand-made scripts have.
+              </Hint>
+            </div>
+
+            {isZoned && (
+              <>
+                <div>
+                  <div className="flex justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Section Length</label>
+                    <span className="text-xs font-mono text-indigo-500">{audioParams.zoneLengthSec}s</span>
+                  </div>
+                  <input
+                    type="range" min="4" max="60"
+                    value={audioParams.zoneLengthSec}
+                    onChange={(e) => handleAudioChange('zoneLengthSec', parseInt(e.target.value, 10))}
+                    className="w-full accent-indigo-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <Hint low="4s: restless, changes constantly" high="60s: long, committed passages">
+                    Roughly how long one settled section lasts. A section still ends early if the track
+                    clearly changes.
+                  </Hint>
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Depth Variation</label>
+                    <span className="text-xs font-mono text-purple-500">{audioParams.depthVariation}%</span>
+                  </div>
+                  <input
+                    type="range" min="0" max="100"
+                    value={audioParams.depthVariation}
+                    onChange={(e) => handleAudioChange('depthVariation', parseInt(e.target.value, 10))}
+                    className="w-full accent-purple-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <Hint low="0: every section uses the full stroke zone" high="100: punchy sections deep, flat ones shallow">
+                    How much stroke depth changes between sections. Driven by how peaky each section is, not
+                    by how loud — so depth and speed vary independently.
+                  </Hint>
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Transition Length</label>
+                    <span className="text-xs font-mono text-cyan-500">{audioParams.rampStrokes} strokes</span>
+                  </div>
+                  <input
+                    type="range" min="1" max="20"
+                    value={audioParams.rampStrokes}
+                    onChange={(e) => handleAudioChange('rampStrokes', parseInt(e.target.value, 10))}
+                    className="w-full accent-cyan-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <Hint low="1: snaps between sections" high="20: long, gradual gear-change">
+                    Strokes spent gliding from one section's feel into the next.
+                  </Hint>
+                </div>
+              </>
+            )}
+
+            {!isZoned && (
+            <div>
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Audio Type</label>
               <div className="flex bg-gray-200 dark:bg-gray-700 p-1 rounded-lg">
                 <button
@@ -409,6 +498,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 smoothing back and boosts peaks so the strokes land on beats.
               </Hint>
             </div>
+            )}
 
             <div>
               <div className="flex justify-between mb-1">
@@ -422,10 +512,13 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 className="w-full accent-pink-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
               />
               <Hint low="1: only the loudest moments register" high="100: quiet sounds drive full speed">
-                How loud the soundtrack has to get before it asks for speed.
+                {isZoned
+                  ? 'Bends how a section\'s loudness maps to its tempo. Sections are judged against the rest of this track, so the full speed range gets used whatever the recording level.'
+                  : 'How loud the soundtrack has to get before it asks for speed.'}
               </Hint>
             </div>
 
+            {!isZoned && (
             <div>
               <div className="flex justify-between mb-1">
                 <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Smoothing</label>
@@ -441,6 +534,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 How quickly the pace is allowed to follow the volume. Punchy mode takes 40 off this.
               </Hint>
             </div>
+            )}
           </div>
         </div>
 
@@ -480,8 +574,9 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
 
             <div className="pt-2 border-t border-gray-200 dark:border-gray-700/50">
               <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
-                Audio mode always plays complete up/down strokes and guarantees at least a 50% range, so a
-                narrow zone here is widened rather than reduced to a twitch.
+                {isZoned
+                  ? 'Zoned mode moves a stroke window around inside these bounds — each section gets its own depth and its own height within them.'
+                  : 'Audio mode always plays complete up/down strokes and guarantees at least a 50% range, so a narrow zone here is widened rather than reduced to a twitch.'}
               </p>
             </div>
           </div>
