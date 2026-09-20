@@ -24,9 +24,10 @@ const SIMULATOR_COL_PX = 80;
 // ends within a few pixels; tune this one number if it still looks off.
 const NATIVE_SCRUBBER_INSET_PX = 16;
 
-// The smallest the video is allowed to get before the page scrolls instead of
-// squeezing it further.
-const MIN_VIDEO_PX = 360;
+// Below lg the page falls back to a single stacked column, and there the video
+// still needs a floor before the page scrolls instead of squeezing it further.
+// It is written as a literal class (min-h-[360px]) rather than built from a
+// constant because Tailwind only sees class names it can read in the source.
 
 export default function HandyScripter({ isDarkMode, toggleTheme, settings, openSettings }) {
   const navigate = useNavigate();
@@ -396,12 +397,23 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8">
-        <div className="max-w-[100rem] mx-auto min-h-full flex flex-col gap-4">
+      {/* Main Content.
+          From lg up this is two columns: the parameters stand in their own
+          scrolling column on the left, and the video keeps the two script bars
+          directly beneath it on the right, so a slider and the graph it changes
+          are on screen at the same time. Below lg it falls back to the stacked
+          layout, where the page scrolls as before. */}
+      <main className="flex-1 overflow-y-auto lg:overflow-hidden p-4 md:p-6 lg:p-8">
+        <div className="max-w-[110rem] mx-auto min-h-full lg:h-full flex flex-col lg:flex-row gap-4 lg:gap-6">
           
-          {/* Top: Controls */}
-          <div className="w-full shrink-0">
+          {/* Left: Controls. The column keeps its width when the panel is
+              collapsed — the video is height-bound, not width-bound, so there is
+              nothing to win by narrowing it — but the collapsed card sits at the
+              top as a compact toolbar instead of stretching down an empty
+              column. */}
+          <div className={`w-full shrink-0 flex lg:w-[22rem] xl:w-[26rem] lg:h-full lg:min-h-0 ${
+            controlsCollapsed ? 'lg:items-start' : ''
+          }`}>
             <GenerationControls 
               params={params}
               setParams={setParams}
@@ -424,108 +436,112 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
             />
           </div>
           
-          {/* Middle: Video Player Area */}
-          <div
-            className={isViewingMode ? "fixed inset-0 z-50 bg-black flex flex-row group" : "flex-1 bg-black rounded-2xl overflow-hidden relative shadow-lg flex flex-row border border-gray-800 group"}
-            style={isViewingMode ? undefined : { minHeight: MIN_VIDEO_PX }}
-          >
-            {!videoUrl ? (
-              <div 
-                className={`text-center p-8 flex flex-col items-center w-full h-full justify-center transition-colors`}
-              >
-                <div className="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-4 pointer-events-none">
-                  <Upload size={32} className="text-blue-500" />
-                </div>
-                <h3 className="text-xl font-medium text-white mb-2 pointer-events-none">Upload a Video</h3>
-                <p className="text-gray-400 mb-6 max-w-sm pointer-events-none">Select an MP4 video from your device or drag and drop it here to begin generating a synchronized funscript.</p>
+          {/* Right: the video, with the script bars kept under it */}
+          <div className="flex-1 min-w-0 flex flex-col gap-4 lg:h-full lg:min-h-0">
+
+            {/* Video Player Area */}
+            <div
+              className={isViewingMode ? "fixed inset-0 z-50 bg-black flex flex-row group" : "flex-1 min-h-[360px] lg:min-h-0 bg-black rounded-2xl overflow-hidden relative shadow-lg flex flex-row border border-gray-800 group"}
+            >
+              {!videoUrl ? (
+                <div 
+                  className={`text-center p-8 flex flex-col items-center w-full h-full justify-center transition-colors`}
+                >
+                  <div className="w-20 h-20 bg-gray-800 rounded-full flex items-center justify-center mb-4 pointer-events-none">
+                    <Upload size={32} className="text-blue-500" />
+                  </div>
+                  <h3 className="text-xl font-medium text-white mb-2 pointer-events-none">Upload a Video</h3>
+                  <p className="text-gray-400 mb-6 max-w-sm pointer-events-none">Select an MP4 video from your device or drag and drop it here to begin generating a synchronized funscript.</p>
                 
-                <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-full font-medium transition-colors z-10">
-                  Browse Files
-                  <input type="file" accept="video/*" className="hidden" onChange={handleFileUpload} />
-                </label>
-              </div>
-            ) : (
-              <>
-                {funscript && (
-                  <div className="w-20 bg-gray-900 border-r border-gray-800 relative shrink-0">
-                    <DeviceSimulator 
+                  <label className="cursor-pointer bg-blue-600 hover:bg-blue-700 text-white py-2 px-6 rounded-full font-medium transition-colors z-10">
+                    Browse Files
+                    <input type="file" accept="video/*" className="hidden" onChange={handleFileUpload} />
+                  </label>
+                </div>
+              ) : (
+                <>
+                  {funscript && (
+                    <div className="w-20 bg-gray-900 border-r border-gray-800 relative shrink-0">
+                      <DeviceSimulator 
+                        actions={funscript.actions} 
+                        isPlaying={isPlaying} 
+                        videoRef={videoRef} 
+                        className="absolute inset-y-4 inset-x-0 flex justify-center pointer-events-none drop-shadow-2xl opacity-90"
+                      />
+                    </div>
+                  )}
+                
+                  <div className="flex-1 relative flex items-center justify-center">
+                    <video 
+                      ref={videoRef}
+                      src={videoUrl}
+                      controls
+                      className="w-full h-full object-contain"
+                      onLoadedMetadata={handleLoadedMetadata}
+                      onTimeUpdate={handleTimeUpdate}
+                      onPlay={handlePlay}
+                      onPause={handlePause}
+                      onSeeked={handleSeeked}
+                    />
+                  
+                    {!isViewingMode && (
+                      <button 
+                        onClick={() => setIsViewingMode(true)} 
+                        className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                        title="Enter Viewing Mode"
+                      >
+                        <Maximize size={20} />
+                      </button>
+                    )}
+                  
+                    {isViewingMode && (
+                      <button 
+                        onClick={() => setIsViewingMode(false)} 
+                        className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
+                        title="Exit Viewing Mode"
+                      >
+                        <Minimize size={20} />
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Under the video: the script bars, indented to line up with its scrubber */}
+            <div
+              className="flex flex-col gap-4 shrink-0 w-full pb-4"
+              style={{
+                paddingLeft: (videoUrl && funscript ? SIMULATOR_COL_PX : 0) + NATIVE_SCRUBBER_INSET_PX,
+                paddingRight: NATIVE_SCRUBBER_INSET_PX,
+              }}
+            >
+              {funscript ? (
+                <>
+                  <ScrollingTimeline 
+                    actions={funscript.actions} 
+                    currentTimeMs={currentTimeMs} 
+                    isPlaying={isPlaying}
+                    videoRef={videoRef}
+                    onRemovePoint={handleRemovePoint}
+                  />
+                  <div className="h-40">
+                    <Heatmap 
                       actions={funscript.actions} 
-                      isPlaying={isPlaying} 
-                      videoRef={videoRef} 
-                      className="absolute inset-y-4 inset-x-0 flex justify-center pointer-events-none drop-shadow-2xl opacity-90"
+                      durationMs={durationMs} 
+                      currentTimeMs={currentTimeMs} 
+                      onRegenerateSelection={handleRegenerateSelection}
+                      onModifySelection={handleModifySelection}
                     />
                   </div>
-                )}
-                
-                <div className="flex-1 relative flex items-center justify-center">
-                  <video 
-                    ref={videoRef}
-                    src={videoUrl}
-                    controls
-                    className="w-full h-full object-contain"
-                    onLoadedMetadata={handleLoadedMetadata}
-                    onTimeUpdate={handleTimeUpdate}
-                    onPlay={handlePlay}
-                    onPause={handlePause}
-                    onSeeked={handleSeeked}
-                  />
-                  
-                  {!isViewingMode && (
-                    <button 
-                      onClick={() => setIsViewingMode(true)} 
-                      className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
-                      title="Enter Viewing Mode"
-                    >
-                      <Maximize size={20} />
-                    </button>
-                  )}
-                  
-                  {isViewingMode && (
-                    <button 
-                      onClick={() => setIsViewingMode(false)} 
-                      className="absolute top-4 right-4 z-40 bg-black/50 hover:bg-black/80 text-white p-2 rounded opacity-0 group-hover:opacity-100 transition-opacity" 
-                      title="Exit Viewing Mode"
-                    >
-                      <Minimize size={20} />
-                    </button>
-                  )}
+                </>
+              ) : (
+                <div className="w-full h-40 bg-gray-200 dark:bg-gray-800 rounded-lg flex items-center justify-center border border-gray-300 dark:border-gray-700 border-dashed">
+                  <p className="text-gray-500 dark:text-gray-400">Generate a script to see the timeline heatmap</p>
                 </div>
-              </>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* Bottom: Heatmap Area, indented to line up with the video scrubber */}
-          <div
-            className="flex flex-col gap-4 shrink-0 w-full pb-4"
-            style={{
-              paddingLeft: (videoUrl && funscript ? SIMULATOR_COL_PX : 0) + NATIVE_SCRUBBER_INSET_PX,
-              paddingRight: NATIVE_SCRUBBER_INSET_PX,
-            }}
-          >
-            {funscript ? (
-              <>
-                <ScrollingTimeline 
-                  actions={funscript.actions} 
-                  currentTimeMs={currentTimeMs} 
-                  isPlaying={isPlaying}
-                  videoRef={videoRef}
-                  onRemovePoint={handleRemovePoint}
-                />
-                <div className="h-40">
-                  <Heatmap 
-                    actions={funscript.actions} 
-                    durationMs={durationMs} 
-                    currentTimeMs={currentTimeMs} 
-                    onRegenerateSelection={handleRegenerateSelection}
-                    onModifySelection={handleModifySelection}
-                  />
-                </div>
-              </>
-            ) : (
-              <div className="w-full h-40 bg-gray-200 dark:bg-gray-800 rounded-lg flex items-center justify-center border border-gray-300 dark:border-gray-700 border-dashed">
-                <p className="text-gray-500 dark:text-gray-400">Generate a script to see the timeline heatmap</p>
-              </div>
-            )}
           </div>
 
         </div>

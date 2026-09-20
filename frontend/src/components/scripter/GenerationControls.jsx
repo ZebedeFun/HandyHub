@@ -62,13 +62,13 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
   );
 
   return (
-    <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 w-full flex flex-col">
-      <div className={`flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0 ${collapsed ? '' : 'mb-4 pb-3 border-b border-gray-100 dark:border-gray-700'}`}>
+    <div className={`bg-white dark:bg-gray-800 p-4 rounded-2xl shadow-lg border border-gray-100 dark:border-gray-700 w-full flex flex-col ${collapsed ? '' : 'lg:h-full lg:min-h-0'}`}>
+      <div className={`flex flex-col md:flex-row lg:flex-col md:items-center lg:items-stretch justify-between lg:justify-start gap-4 shrink-0 ${collapsed ? '' : 'mb-4 pb-3 border-b border-gray-100 dark:border-gray-700'}`}>
         <button
           type="button"
           onClick={onToggleCollapsed}
           aria-expanded={!collapsed}
-          title={collapsed ? 'Show the script parameters' : 'Hide the script parameters to give the video more room'}
+          title={collapsed ? 'Show the script parameters' : 'Hide the script parameters, leaving the toolbar'}
           className="flex items-center gap-2 -ml-1 px-1 py-1 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700/60 transition-colors"
         >
           <Settings className="text-blue-500" />
@@ -78,12 +78,12 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
             : <ChevronUp size={18} className="text-gray-500 dark:text-gray-400" />}
         </button>
 
-        <div className="flex bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl">
+        <div className="flex bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl lg:w-full">
           <button
             type="button"
             onClick={() => setMode('procedural')}
             title="Build a script from the parameters below"
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex flex-1 items-center justify-center gap-1.5 ${
               !isAudio
                 ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -95,7 +95,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
             type="button"
             onClick={() => setMode('audio')}
             title="Build a script from the loaded video's soundtrack"
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex flex-1 items-center justify-center gap-1.5 ${
               isAudio
                 ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
@@ -105,12 +105,12 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
           </button>
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button 
             onClick={onGenerate}
             disabled={!canGenerate}
             title={isAudio && !hasVideo ? 'Load a video first — Audio mode reads its soundtrack' : undefined}
-            className={`py-2 px-4 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 ${
+            className={`py-2 px-4 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 lg:w-full ${
               canGenerate
                 ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5'
                 : 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 cursor-not-allowed shadow-none'
@@ -179,7 +179,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
       </div>
 
       {!collapsed && !isAudio && (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-6 overflow-y-auto min-h-0 pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
         
         {/* Section 1: Behavior */}
         <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
@@ -372,7 +372,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
       )}
 
       {!collapsed && isAudio && (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-6 overflow-y-auto min-h-0 pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
 
         {/* Section 1: Source */}
         <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
