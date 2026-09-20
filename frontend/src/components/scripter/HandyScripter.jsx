@@ -18,6 +18,11 @@ import { downloadFunscript } from '../../services/funscriptFile';
 // two up.
 const SIMULATOR_COL_PX = 80;
 
+// Closest two hand-placed points are allowed to be. The Handy reads a script as
+// a series of moves, so two actions a few ms apart ask for an impossible speed
+// and come out as a jolt.
+const MIN_POINT_GAP_MS = 20;
+
 // Browsers also inset their scrub track a little from the edge of the video
 // element. This is an approximation, not a measurement: the native controls
 // live in a closed shadow root, so there is nothing to measure. It gets the
@@ -314,25 +319,57 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     commitFunscript(newScript);
   };
 
-  const handleRemovePoint = (timeMs) => {
+  // Hand edits on the scrolling timeline. The bar hit-tests in pixels and
+  // hands back an index, so these three only have to keep the actions array
+  // valid: sorted by time, no two actions at the same millisecond.
+  //
+  // A script needs two points to be a script, so the last pair is not
+  // removable — beyond that the ends are fair game, which is how trailing
+  // rubbish at the end of a generated script gets cleaned up.
+  const handleRemovePoint = (index) => {
     if (!funscript || !funscript.actions) return;
-    
-    let nearestIdx = -1;
-    let minDiff = Infinity;
-    for (let i = 0; i < funscript.actions.length; i++) {
-       const diff = Math.abs(funscript.actions[i].at - timeMs);
-       if (diff < minDiff && diff < 1000) {
-          minDiff = diff;
-          nearestIdx = i;
-       }
-    }
-    
-    if (nearestIdx !== -1) {
-       if (nearestIdx === 0 || nearestIdx === funscript.actions.length - 1) return;
-       const newActions = [...funscript.actions];
-       newActions.splice(nearestIdx, 1);
-       commitFunscript({ ...funscript, actions: newActions });
-    }
+    if (index < 0 || index >= funscript.actions.length) return;
+    if (funscript.actions.length <= 2) return;
+    const newActions = [...funscript.actions];
+    newActions.splice(index, 1);
+    commitFunscript({ ...funscript, actions: newActions });
+  };
+
+  const handleAddPoint = (timeMs, pos) => {
+    if (!funscript || !funscript.actions) return;
+    const at = Math.max(0, Math.round(timeMs));
+    if (durationMs && at > durationMs) return;
+    const actions = funscript.actions;
+
+    let insertAt = actions.findIndex(a => a.at >= at);
+    if (insertAt === -1) insertAt = actions.length;
+
+    // A click right on top of an existing point is a miss, not an insert:
+    // dragging that point is what the user wanted, and two actions within a
+    // few ms of each other read as a jitter spike on the device.
+    const crowded = [actions[insertAt - 1], actions[insertAt]]
+      .some(a => a && Math.abs(a.at - at) < MIN_POINT_GAP_MS);
+    if (crowded) return;
+
+    const newActions = [...actions];
+    newActions.splice(insertAt, 0, { at, pos: Math.max(0, Math.min(100, Math.round(pos))) });
+    commitFunscript({ ...funscript, actions: newActions });
+  };
+
+  const handleMovePoint = (index, timeMs, pos) => {
+    if (!funscript || !funscript.actions) return;
+    const actions = funscript.actions;
+    if (index < 0 || index >= actions.length) return;
+
+    const prev = actions[index - 1];
+    const next = actions[index + 1];
+    const lo = prev ? prev.at + 1 : 0;
+    const hi = next ? next.at - 1 : Math.max(lo, Math.round(timeMs));
+    const at = Math.round(Math.max(lo, Math.min(hi, timeMs)));
+
+    const newActions = [...actions];
+    newActions[index] = { ...actions[index], at, pos: Math.max(0, Math.min(100, Math.round(pos))) };
+    commitFunscript({ ...funscript, actions: newActions });
   };
 
   // Download logic. Only the script is required. Requiring a video too meant a
@@ -524,6 +561,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                     isPlaying={isPlaying}
                     videoRef={videoRef}
                     onRemovePoint={handleRemovePoint}
+                    onAddPoint={handleAddPoint}
+                    onMovePoint={handleMovePoint}
                   />
                   <div className="h-40">
                     <Heatmap 
