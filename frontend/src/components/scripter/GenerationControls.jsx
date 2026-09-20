@@ -1,7 +1,23 @@
 import React from 'react';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2 } from 'lucide-react';
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo }) {
+  const isAudio = mode === 'audio';
+
+  // Audio mode needs a soundtrack to read; without a video there is nothing to
+  // generate from.
+  const canGenerate = !isAnalyzingAudio && (!isAudio || hasVideo);
+
+  const handleAudioChange = (name, value) => setAudioParams(prev => {
+    const next = { ...prev, [name]: value };
+    // Keep each pair the right way round, as the procedural sliders do.
+    if (name === 'minHeight' && next.minHeight > next.maxHeight) next.maxHeight = next.minHeight;
+    if (name === 'maxHeight' && next.maxHeight < next.minHeight) next.minHeight = next.maxHeight;
+    if (name === 'minSpeed' && next.minSpeed > next.maxSpeed) next.maxSpeed = next.minSpeed;
+    if (name === 'maxSpeed' && next.maxSpeed < next.minSpeed) next.minSpeed = next.maxSpeed;
+    return next;
+  });
+
   const handleChange = (e) => {
     const { name, value, type } = e.target;
     
@@ -60,14 +76,49 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
             ? <ChevronDown size={18} className="text-gray-500 dark:text-gray-400" />
             : <ChevronUp size={18} className="text-gray-500 dark:text-gray-400" />}
         </button>
+
+        <div className="flex bg-gray-100 dark:bg-gray-700/60 p-1 rounded-xl">
+          <button
+            type="button"
+            onClick={() => setMode('procedural')}
+            title="Build a script from the parameters below"
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+              !isAudio
+                ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            <Sliders size={14} /> Parameters
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('audio')}
+            title="Build a script from the loaded video's soundtrack"
+            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5 ${
+              isAudio
+                ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            <Music size={14} /> Audio
+          </button>
+        </div>
         
         <div className="flex items-center gap-2">
           <button 
             onClick={onGenerate}
-            className="py-2 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 transform hover:-translate-y-0.5"
+            disabled={!canGenerate}
+            title={isAudio && !hasVideo ? 'Load a video first — Audio mode reads its soundtrack' : undefined}
+            className={`py-2 px-4 text-white text-sm font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2 ${
+              canGenerate
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5'
+                : 'bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-500 cursor-not-allowed shadow-none'
+            }`}
           >
-            <Play size={16} />
-            Generate Complete Script
+            {isAnalyzingAudio ? <Loader2 size={16} className="animate-spin" /> : <Play size={16} />}
+            {isAnalyzingAudio
+              ? 'Analyzing Audio…'
+              : isAudio ? 'Generate from Audio' : 'Generate Complete Script'}
           </button>
           
           <div className="flex items-center gap-1 mr-1">
@@ -126,7 +177,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
         </div>
       </div>
 
-      {!collapsed && (
+      {!collapsed && !isAudio && (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
         
         {/* Section 1: Behavior */}
@@ -312,6 +363,169 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 Eases both tempo and stroke length down to a gentle finish over the final{' '}
                 {params.cooldownSec > 0 ? params.cooldownSec : 'N'} seconds.
               </Hint>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      )}
+
+      {!collapsed && isAudio && (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
+
+        {/* Section 1: Source */}
+        <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
+          <SectionTitle icon={Music} title="Audio Source" />
+
+          <div className="space-y-4">
+            <div>
+              <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Audio Type</label>
+              <div className="flex bg-gray-200 dark:bg-gray-700 p-1 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => handleAudioChange('audioType', 'action')}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    audioParams.audioType === 'action'
+                      ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  Continuous (Action)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleAudioChange('audioType', 'music')}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    audioParams.audioType === 'music'
+                      ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  Punchy (Music)
+                </button>
+              </div>
+              <Hint>
+                <b>Continuous</b> smooths the soundtrack into gradual build-ups. <b>Punchy</b> cuts the
+                smoothing back and boosts peaks so the strokes land on beats.
+              </Hint>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Audio Sensitivity</label>
+                <span className="text-xs font-mono text-pink-500">{audioParams.sensitivity}%</span>
+              </div>
+              <input
+                type="range" min="1" max="100"
+                value={audioParams.sensitivity}
+                onChange={(e) => handleAudioChange('sensitivity', parseInt(e.target.value, 10))}
+                className="w-full accent-pink-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              />
+              <Hint low="1: only the loudest moments register" high="100: quiet sounds drive full speed">
+                How loud the soundtrack has to get before it asks for speed.
+              </Hint>
+            </div>
+
+            <div>
+              <div className="flex justify-between mb-1">
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Smoothing</label>
+                <span className="text-xs font-mono text-emerald-500">{audioParams.smoothing}%</span>
+              </div>
+              <input
+                type="range" min="0" max="95"
+                value={audioParams.smoothing}
+                onChange={(e) => handleAudioChange('smoothing', parseInt(e.target.value, 10))}
+                className="w-full accent-emerald-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              />
+              <Hint low="0: reacts to every noise, twitchy" high="95: long, lazy swells">
+                How quickly the pace is allowed to follow the volume. Punchy mode takes 40 off this.
+              </Hint>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Stroke Zone */}
+        <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
+          <SectionTitle icon={Sliders} title="Stroke Zone" />
+
+          <div className="space-y-4">
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Min (Bot)</label>
+                  <span className="text-[10px] font-mono text-gray-500">{audioParams.minHeight}%</span>
+                </div>
+                <input
+                  type="range" min="0" max="50"
+                  value={audioParams.minHeight}
+                  onChange={(e) => handleAudioChange('minHeight', parseInt(e.target.value, 10))}
+                  className="w-full accent-gray-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <Hint>Lowest point the sleeve reaches.</Hint>
+              </div>
+              <div className="flex-1">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Max (Top)</label>
+                  <span className="text-[10px] font-mono text-gray-500">{audioParams.maxHeight}%</span>
+                </div>
+                <input
+                  type="range" min="50" max="100"
+                  value={audioParams.maxHeight}
+                  onChange={(e) => handleAudioChange('maxHeight', parseInt(e.target.value, 10))}
+                  className="w-full accent-gray-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <Hint>Highest point it reaches.</Hint>
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-gray-200 dark:border-gray-700/50">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
+                Audio mode always plays complete up/down strokes and guarantees at least a 50% range, so a
+                narrow zone here is widened rather than reduced to a twitch.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 3: Speed Mapping */}
+        <div className="bg-gray-50 dark:bg-gray-800/50 p-4 rounded-xl border border-gray-100 dark:border-gray-700/50">
+          <SectionTitle icon={Volume2} title="Speed Mapping" />
+
+          <div className="space-y-4">
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">When Quiet</label>
+                  <span className="text-[10px] font-mono text-blue-500">{audioParams.minSpeed}%</span>
+                </div>
+                <input
+                  type="range" min="0" max="50"
+                  value={audioParams.minSpeed}
+                  onChange={(e) => handleAudioChange('minSpeed', parseInt(e.target.value, 10))}
+                  className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <Hint low="0: near standstill in the silences" high="50: keeps ticking over" />
+              </div>
+              <div className="flex-1">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">When Loud</label>
+                  <span className="text-[10px] font-mono text-blue-500">{audioParams.maxSpeed}%</span>
+                </div>
+                <input
+                  type="range" min="50" max="100"
+                  value={audioParams.maxSpeed}
+                  onChange={(e) => handleAudioChange('maxSpeed', parseInt(e.target.value, 10))}
+                  className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <Hint low="Caps the peaks" high="100: flat out at the loudest moments" />
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-gray-200 dark:border-gray-700/50">
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
+                Volume maps to stroke duration: 100% is a 150ms stroke, 0% a 2s one. Generating drops the
+                result into the history below, so the heatmap tools, undo and Download all apply.
+              </p>
             </div>
           </div>
         </div>

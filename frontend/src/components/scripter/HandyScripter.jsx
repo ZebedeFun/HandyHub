@@ -7,6 +7,8 @@ import DeviceSimulator from './DeviceSimulator';
 import ScrollingTimeline from './ScrollingTimeline';
 import { generateProceduralScript, generatePartialScript, modifyPartialScript } from '../../services/scriptGenerator';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
+import { analyzeAudioFile, generateAudioScript, DEFAULT_AUDIO_PARAMS } from '../../services/audioScriptGenerator';
+import { downloadFunscript } from '../../services/funscriptFile';
 
 // The device simulator occupies its own w-20 column to the LEFT of the video,
 // so the video element — and with it the browser's native progress bar — starts
@@ -132,6 +134,19 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     }
   }, [funscript, syncToHandy]);
   
+  // Two ways to build a script from here: from the parameters below, or from
+  // the loaded video's own soundtrack (the same engine the Auto Sync tab runs
+  // live). Either way the result lands in the edit history, so the heatmap
+  // tools, undo and Download all apply to it.
+  const [genMode, setGenMode] = useState('procedural'); // 'procedural' | 'audio'
+  const [audioParams, setAudioParams] = useState(DEFAULT_AUDIO_PARAMS);
+  const [isAnalyzingAudio, setIsAnalyzingAudio] = useState(false);
+
+  // Decoding a feature-length soundtrack is slow, and the envelope depends only
+  // on the file — so it is kept and reused while you retune the audio sliders,
+  // and thrown away when a different video is loaded.
+  const [audioEnvelope, setAudioEnvelope] = useState(null);
+
   const [params, setParams] = useState({
     baseSpeed: 5,
     strokesPerMin: 200,
@@ -153,6 +168,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
       setImportedScriptName(null);
+      setAudioEnvelope(null);
       resetFunscript(null); // clear old script
     }
   };
@@ -177,6 +193,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     if (file.type.startsWith('video/') || file.name.endsWith('.mp4')) {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
+      setAudioEnvelope(null);
     } else if (file.name.endsWith('.funscript') || file.type === 'application/json') {
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -248,6 +265,36 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     commitFunscript(script);
   };
 
+  const handleGenerateFromAudio = async () => {
+    if (!videoFile) {
+      alert("Load a video first — Audio mode builds the script from its soundtrack.");
+      return;
+    }
+    setIsAnalyzingAudio(true);
+    try {
+      let envelope = audioEnvelope;
+      if (!envelope) {
+        envelope = await analyzeAudioFile(videoFile);
+        setAudioEnvelope(envelope);
+      }
+      const script = generateAudioScript(envelope, audioParams);
+      if (!script) {
+        alert("No audio could be read from this video.");
+        return;
+      }
+      commitFunscript(script);
+    } catch (err) {
+      console.error("Audio analysis failed:", err);
+      alert("Could not extract audio from this video. Ensure it contains an audio track.");
+    } finally {
+      setIsAnalyzingAudio(false);
+    }
+  };
+
+  const handleGenerateClick = () => (
+    genMode === 'audio' ? handleGenerateFromAudio() : handleGenerate()
+  );
+
   const handleRegenerateSelection = (startMs, endMs) => {
     if (!funscript || !funscript.actions) return;
     const newScript = generatePartialScript(funscript.actions, startMs, endMs, params);
@@ -287,29 +334,12 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     }
   };
 
-  // Download logic
-  const handleDownload = () => {
-    // Only the script is required. Requiring a video too meant a .funscript
-    // dropped in on its own could be edited with every tool here and then never
-    // saved — the button simply did nothing.
-    if (!funscript) return;
-
-    const json = JSON.stringify(funscript, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const href = URL.createObjectURL(blob);
-
-    // Name it after the video, else the imported script, else a fallback.
-    const source = videoFile?.name || importedScriptName;
-    const baseName = source ? source.replace(/\.[^/.]+$/, "") : "handyhub-script";
-
-    const link = document.createElement("a");
-    link.href = href;
-    link.download = `${baseName}.funscript`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(href);
-  };
+  // Download logic. Only the script is required. Requiring a video too meant a
+  // .funscript dropped in on its own could be edited with every tool here and
+  // then never saved — the button simply did nothing.
+  //
+  // Named after the video, else the imported script, else a fallback.
+  const handleDownload = () => downloadFunscript(funscript, videoFile?.name || importedScriptName);
 
   return (
     <div 
@@ -375,7 +405,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
             <GenerationControls 
               params={params}
               setParams={setParams}
-              onGenerate={handleGenerate}
+              onGenerate={handleGenerateClick}
               canDownload={!!funscript}
               onDownload={handleDownload}
               onFixJitterWholeScript={handleFixJitterWholeScript}
@@ -385,6 +415,12 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               canRedo={history.future.length > 0}
               collapsed={controlsCollapsed}
               onToggleCollapsed={toggleControlsCollapsed}
+              mode={genMode}
+              setMode={setGenMode}
+              audioParams={audioParams}
+              setAudioParams={setAudioParams}
+              isAnalyzingAudio={isAnalyzingAudio}
+              hasVideo={!!videoFile}
             />
           </div>
           

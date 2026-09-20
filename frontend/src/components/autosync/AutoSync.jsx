@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
-import { Settings, Music, Loader2, Maximize, Minimize, Activity, ArrowLeft } from 'lucide-react';
+import { Settings, Music, Loader2, Maximize, Minimize, Activity, ArrowLeft, Download } from 'lucide-react';
 import DeviceSimulator from '../scripter/DeviceSimulator';
+import { analyzeAudioFile, generateAudioScript } from '../../services/audioScriptGenerator';
+import { downloadFunscript } from '../../services/funscriptFile';
 
 export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettings }) {
   const [videoFile, setVideoFile] = useState(null);
@@ -10,7 +12,6 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   // Audio Analysis State
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [audioEnvelope, setAudioEnvelope] = useState([]);
-  const fps = 20;
   
   // Controls
   const [audioType, setAudioType] = useState('action'); // 'action' or 'music'
@@ -33,44 +34,13 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   const [generatedScript, setGeneratedScript] = useState(null);
   
   const videoRef = useRef(null);
-  const audioCtxRef = useRef(null);
 
   // 1. Analyze Audio Buffer
   const analyzeAudio = async (file) => {
     setIsAnalyzing(true);
     setAudioEnvelope([]);
     try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      const arrayBuffer = await file.arrayBuffer();
-      const audioBuffer = await audioCtxRef.current.decodeAudioData(arrayBuffer);
-      const channelData = audioBuffer.getChannelData(0);
-      
-      const blockSize = Math.floor(audioBuffer.sampleRate / fps);
-      const envelope = [];
-      
-      for (let i = 0; i < channelData.length; i += blockSize) {
-        let sumSquares = 0;
-        let count = 0;
-        for (let j = 0; j < blockSize && (i + j) < channelData.length; j += 10) {
-          sumSquares += channelData[i + j] * channelData[i + j];
-          count++;
-        }
-        envelope.push(Math.sqrt(sumSquares / count));
-      }
-      
-      let maxVal = 0;
-      for (let i = 0; i < envelope.length; i++) {
-        if (envelope[i] > maxVal) maxVal = envelope[i];
-      }
-      if (maxVal > 0) {
-        for (let i = 0; i < envelope.length; i++) {
-          envelope[i] = envelope[i] / maxVal;
-        }
-      }
-      
-      setAudioEnvelope(envelope);
+      setAudioEnvelope(await analyzeAudioFile(file));
     } catch (err) {
       console.error("Failed to analyze audio:", err);
       alert("Could not extract audio from this video. Ensure it contains an audio track.");
@@ -82,67 +52,13 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
   // 2. Generate Script from Envelope when settings change
   useEffect(() => {
     if (audioEnvelope.length === 0) return;
-    
-    const generateScript = () => {
-      const controlTrack = [];
-      let currentSpeed = 0;
-      
-      let actualSmoothing = smoothing;
-      if (audioType === 'music') {
-        actualSmoothing = Math.max(0, smoothing - 40); // Less smoothing for punchier beats
-      }
-      const smoothFactor = actualSmoothing / 100;
-      
-      for (let i = 0; i < audioEnvelope.length; i++) {
-        let raw = audioEnvelope[i];
-        const multiplier = Math.pow(10, (sensitivity - 50) / 30); 
-        raw = Math.min(1.0, raw * multiplier);
-        
-        if (audioType === 'music' && raw > 0.6) {
-           raw = Math.min(1.0, raw * 1.5); // Boost peaks
-        }
-        
-        currentSpeed = (currentSpeed * smoothFactor) + (raw * (1 - smoothFactor));
-        controlTrack.push(currentSpeed);
-      }
-      
-      const actions = [];
-      let timeMs = 0;
-      const maxTimeMs = (audioEnvelope.length / fps) * 1000;
-      let isUp = true;
-      
-      // Enforce 50% minimum stroke range
-      let safeMin = minHeight;
-      let safeMax = maxHeight;
-      if (safeMax - safeMin < 50) {
-        if (safeMin + 50 <= 100) safeMax = safeMin + 50;
-        else safeMin = safeMax - 50;
-      }
-      
-      while (timeMs < maxTimeMs) {
-        const index = Math.floor((timeMs / 1000) * fps);
-        const speedVal = index < controlTrack.length ? controlTrack[index] : 0;
-        const speedPercent = minSpeed + (speedVal * (maxSpeed - minSpeed));
-        
-        // Map speed to stroke duration (100% = 150ms, 0% = 2000ms)
-        const duration = 150 + ((1 - (speedPercent / 100)) * 1850);
-        
-        actions.push({
-          at: Math.round(timeMs),
-          pos: isUp ? safeMax : safeMin
-        });
-        
-        timeMs += duration;
-        isUp = !isUp;
-      }
-      
-      return { actions };
-    };
 
     const timer = setTimeout(() => {
-      setGeneratedScript(generateScript());
+      setGeneratedScript(generateAudioScript(audioEnvelope, {
+        audioType, minHeight, maxHeight, minSpeed, maxSpeed, smoothing, sensitivity,
+      }));
     }, 500); // Debounce script generation
-    
+
     return () => clearTimeout(timer);
   }, [audioEnvelope, minHeight, maxHeight, minSpeed, maxSpeed, sensitivity, smoothing, audioType]);
 
@@ -216,6 +132,10 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
       await hsspPlay(settings.handyKey, serverTime, startTime);
     }
   };
+
+  // Save the audio-generated script. It is a normal funscript, so it can be
+  // dropped straight back into the Scripter for cleanup.
+  const handleDownload = () => downloadFunscript(generatedScript, videoFile?.name);
 
   const toggleSyncing = () => {
     if (isSyncing) {
@@ -380,8 +300,25 @@ export default function AutoSync({ isDarkMode, toggleTheme, settings, openSettin
                   </div>
                 </div>
                 
-                <div className="flex items-center gap-6 text-sm font-mono text-slate-500">
-                  {generatedScript && <span>{generatedScript.actions.length} strokes mapped</span>}
+                <div className="flex items-center gap-4 text-sm">
+                  {generatedScript && (
+                    <span className="font-mono text-slate-500">{generatedScript.actions.length} strokes mapped</span>
+                  )}
+                  <button
+                    onClick={handleDownload}
+                    disabled={!generatedScript}
+                    title={generatedScript
+                      ? 'Save this audio-generated script as a .funscript'
+                      : 'Nothing generated yet'}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors shadow-sm flex items-center gap-2 ${
+                      generatedScript
+                        ? 'bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed'
+                    }`}
+                  >
+                    <Download size={16} />
+                    Download
+                  </button>
                 </div>
               </div>
             )}
