@@ -1,7 +1,22 @@
 import React from 'react';
 import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs }) {
+// 1500 -> "+1.5s", -40 -> "-40ms". Past a second the ms count stops being
+// readable at a glance.
+function formatShift(ms, signed = true) {
+  const sign = signed && ms > 0 ? '+' : '';
+  if (Math.abs(ms) >= 1000) return `${sign}${+(ms / 1000).toFixed(3)}s`;
+  return `${sign}${ms}ms`;
+}
+
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount }) {
+  // A video that is out by seconds would take dozens of clicks on the nudge
+  // buttons, so a typed amount sits under them.
+  const [shiftAmount, setShiftAmount] = React.useState('1');
+  const [shiftUnit, setShiftUnit] = React.useState('s');
+  const shiftAmountMs = Math.round(Math.abs(parseFloat(shiftAmount) || 0) * (shiftUnit === 's' ? 1000 : 1));
+  const canShiftBy = canDownload && shiftAmountMs > 0;
+
   const isAudio = mode === 'audio';
   const isTap = mode === 'tap';
   const isZoned = audioParams?.structure === 'zoned';
@@ -200,28 +215,87 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
           </button>
 
           {/* Whole-script timing. A script that is right but late — an import,
-              or a take tapped a beat behind — needs sliding, not rebuilding. */}
-          <div className="flex items-center gap-1 w-full">
-            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mr-1 shrink-0">Shift</span>
-            {[[-100, ChevronsLeft, '100ms earlier'], [-10, ChevronLeft, '10ms earlier'],
-              [10, ChevronRight, '10ms later'], [100, ChevronsRight, '100ms later']].map(([delta, Icon, label]) => (
+              or a take tapped a beat behind — needs sliding, not rebuilding.
+              "Earlier" means the action comes sooner against the video. */}
+          <div className="flex flex-col gap-1.5 w-full">
+            <div className="flex items-center gap-1 w-full">
+              <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mr-1 shrink-0 w-7">Shift</span>
+              {[[-100, ChevronsLeft, '100ms earlier'], [-10, ChevronLeft, '10ms earlier'],
+                [10, ChevronRight, '10ms later'], [100, ChevronsRight, '100ms later']].map(([delta, Icon, label]) => (
+                <button
+                  key={delta}
+                  onClick={() => onShiftScript(delta)}
+                  disabled={!canDownload}
+                  title={`Move the whole script ${label}`}
+                  className={`p-1.5 rounded-lg border transition-all ${
+                    canDownload
+                      ? 'bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600'
+                      : 'bg-gray-50 dark:bg-gray-800/50 text-gray-300 dark:text-gray-600 cursor-not-allowed border-transparent'
+                  }`}
+                >
+                  <Icon size={14} />
+                </button>
+              ))}
+              {/* Clicking the total slides the script back to where it started;
+                  points pushed off the front come back with it. */}
               <button
-                key={delta}
-                onClick={() => onShiftScript(delta)}
-                disabled={!canDownload}
-                title={`Move the whole script ${label}`}
-                className={`p-1.5 rounded-lg border transition-all ${
-                  canDownload
-                    ? 'bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600'
-                    : 'bg-gray-50 dark:bg-gray-800/50 text-gray-300 dark:text-gray-600 cursor-not-allowed border-transparent'
+                onClick={() => onShiftScript(-shiftedByMs)}
+                disabled={!canDownload || !shiftedByMs}
+                title={shiftedByMs
+                  ? `Shifted ${formatShift(shiftedByMs)} in total — click to put it back${shiftTrimmedCount ? ` (${shiftTrimmedCount} point${shiftTrimmedCount === 1 ? '' : 's'} before 0:00 held back)` : ''}`
+                  : 'Not shifted'}
+                className={`text-[10px] font-mono ml-1 tabular-nums px-1 rounded ${
+                  shiftedByMs && canDownload
+                    ? 'text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 cursor-pointer'
+                    : 'text-gray-400 dark:text-gray-500 cursor-default'
                 }`}
               >
-                <Icon size={14} />
+                {formatShift(shiftedByMs)}
               </button>
-            ))}
-            <span className="text-[10px] font-mono text-gray-400 dark:text-gray-500 ml-1 tabular-nums">
-              {shiftedByMs > 0 ? `+${shiftedByMs}` : shiftedByMs}ms
-            </span>
+            </div>
+            <div className="flex items-center gap-1 w-full">
+              <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mr-1 shrink-0 w-7">By</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step={shiftUnit === 's' ? 0.1 : 10}
+                value={shiftAmount}
+                onChange={(e) => setShiftAmount(e.target.value)}
+                disabled={!canDownload}
+                aria-label="Amount to shift the whole script by"
+                className="w-16 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white text-xs rounded-lg px-2 py-1 outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+              />
+              <div className="flex rounded-lg border border-gray-200 dark:border-gray-600 overflow-hidden text-[10px] font-medium">
+                {['ms', 's'].map(u => (
+                  <button
+                    key={u}
+                    onClick={() => setShiftUnit(u)}
+                    className={`px-1.5 py-1 ${shiftUnit === u
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600'}`}
+                  >
+                    {u}
+                  </button>
+                ))}
+              </div>
+              {[[-1, ChevronLeft, 'Earlier'], [1, ChevronRight, 'Later']].map(([sign, Icon, label]) => (
+                <button
+                  key={label}
+                  onClick={() => onShiftScript(sign * shiftAmountMs)}
+                  disabled={!canShiftBy}
+                  title={`Move the whole script ${formatShift(shiftAmountMs, false)} ${label.toLowerCase()}`}
+                  className={`flex items-center gap-0.5 py-1 pl-1 pr-2 text-[11px] font-medium rounded-lg border transition-all ${
+                    canShiftBy
+                      ? 'bg-white hover:bg-gray-100 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 border-gray-200 dark:border-gray-600'
+                      : 'bg-gray-50 dark:bg-gray-800/50 text-gray-300 dark:text-gray-600 cursor-not-allowed border-transparent'
+                  }`}
+                >
+                  <Icon size={14} />
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>

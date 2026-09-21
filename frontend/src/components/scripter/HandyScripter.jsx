@@ -65,7 +65,22 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const COALESCE_MS = 900;
   const lastCommitRef = useRef({ key: null, time: 0 });
 
-  const commitFunscript = (next, coalesceKey) => {
+  // How far the script has been slid in time, kept per script version rather
+  // than in its own state, so Ctrl+Z puts the counter back along with the
+  // points. `trimmed` holds points a shift pushed before 0:00: shifting back
+  // returns them instead of leaving a hole at the start, so -2s then +2s is a
+  // no-op. Only a run of shifts carries them; any other edit lets them go.
+  const shiftMetaRef = useRef(new WeakMap());
+  const shiftMeta = (fs) => (fs && shiftMetaRef.current.get(fs)) || { totalMs: 0, trimmed: [] };
+
+  // `freshTiming` marks a script whose times owe nothing to the one before it
+  // (a loaded file, a full generation), so it starts unshifted. Every other
+  // edit is still the same script, shifted by as much as it was.
+  const commitFunscript = (next, coalesceKey, { freshTiming = false } = {}) => {
+    if (next && !shiftMetaRef.current.has(next)) {
+      const totalMs = freshTiming ? 0 : shiftMeta(funscript).totalMs;
+      if (totalMs) shiftMetaRef.current.set(next, { totalMs, trimmed: [] });
+    }
     const now = Date.now();
     const last = lastCommitRef.current;
     const coalesce = coalesceKey && last.key === coalesceKey && now - last.time < COALESCE_MS;
@@ -120,9 +135,6 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const [pendingTaps, setPendingTaps] = useState([]);
   const [playbackRate, setPlaybackRate] = useState(1);
   const tapsRef = useRef([]);
-  // Net shift applied to the script so far, shown so a nudge can be undone by
-  // eye rather than by counting clicks.
-  const [shiftedByMs, setShiftedByMs] = useState(0);
   const [isViewingMode, setIsViewingMode] = useState(false);
 
   // The parameter panel is by far the tallest thing on the page, so collapsing
@@ -236,7 +248,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
         try {
           const json = JSON.parse(event.target.result);
           if (json.actions) {
-             commitFunscript(json);
+             commitFunscript(json, null, { freshTiming: true });
              setImportedScriptName(file.name);
              if (!videoUrl && json.actions.length > 0) {
                setDurationMs(json.actions[json.actions.length - 1].at + 1000);
@@ -298,7 +310,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
       return;
     }
     const script = generateProceduralScript(durationMs, params);
-    commitFunscript(script);
+    commitFunscript(script, null, { freshTiming: true });
   };
 
   const handleGenerateFromAudio = async () => {
@@ -318,7 +330,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
         alert("No audio could be read from this video.");
         return;
       }
-      commitFunscript(script);
+      commitFunscript(script, null, { freshTiming: true });
     } catch (err) {
       console.error("Audio analysis failed:", err);
       alert("Could not extract audio from this video. Ensure it contains an audio track.");
@@ -490,14 +502,17 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   // --- Whole-script timing -------------------------------------------------
 
   const handleShiftScript = (deltaMs) => {
-    if (!funscript || !funscript.actions || funscript.actions.length === 0) return;
-    const shifted = funscript.actions
-      .map(a => ({ ...a, at: Math.round(a.at + deltaMs) }))
-      .filter(a => a.at >= 0);
-    if (shifted.length < 2) return;
-    setShiftedByMs(prev => prev + deltaMs);
-    commitFunscript({ ...funscript, actions: shifted }, 'shift');
+    deltaMs = Math.round(deltaMs);
+    if (!deltaMs || !funscript || !funscript.actions || funscript.actions.length === 0) return;
+    const { totalMs, trimmed } = shiftMeta(funscript);
+    const moved = [...trimmed, ...funscript.actions].map(a => ({ ...a, at: Math.round(a.at + deltaMs) }));
+    const actions = moved.filter(a => a.at >= 0);
+    if (actions.length < 2) return;
+    const next = { ...funscript, actions };
+    shiftMetaRef.current.set(next, { totalMs: totalMs + deltaMs, trimmed: moved.filter(a => a.at < 0) });
+    commitFunscript(next, 'shift');
   };
+  const { totalMs: shiftedByMs, trimmed: shiftTrimmed } = shiftMeta(funscript);
 
   // Download logic. Only the script is required. Requiring a video too meant a
   // .funscript dropped in on its own could be edited with every tool here and
@@ -622,6 +637,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               onTap={recordTap}
               onShiftScript={handleShiftScript}
               shiftedByMs={shiftedByMs}
+              shiftTrimmedCount={shiftTrimmed.length}
             />
           </div>
           
