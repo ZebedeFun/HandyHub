@@ -263,7 +263,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
 
   const handleSaveToStash = async () => {
     if (!stashScene || !funscript) return;
-    if (!window.confirm(`Save this script to Stash as the funscript for "${stashScene.title}"?\n\nThe current one is kept as a .bak.`)) return;
+    if (!window.confirm(`Save this script to Stash as the funscript for "${stashScene.title}"?\n\nAny script it already has is kept as a .bak.`)) return;
     setStashSaveState('saving');
     try {
       const res = await fetch(`/api/stash/scenes/${stashScene.id}/funscript`, {
