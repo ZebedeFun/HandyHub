@@ -653,7 +653,10 @@ export default function ScrollingTimeline({
 
   const activeMode = MODES.find(m => m.id === editMode) || MODES[0];
   const selectedPoint = selectedIndex !== null && actions ? actions[selectedIndex] : null;
-  const runOp = (fn) => { fn(); setRange(null); };
+  // The selection stays after an edit: Faster, Deeper and the rest are small
+  // steps, usually pressed several times over the same stretch. Every edit
+  // keeps its changes inside the range, so it still marks the same section.
+  const runOp = (fn) => { fn(); };
 
   return (
     <div className="group w-full h-32 bg-gray-900 border border-gray-700 rounded-lg overflow-hidden relative shadow-inner">
