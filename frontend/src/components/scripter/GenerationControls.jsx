@@ -1,7 +1,7 @@
 import React from 'react';
 import { describeSpeedBracket } from '../../services/scriptGenerator';
 import ScriptToolbox from './ScriptToolbox';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Shuffle, Dices, Wrench } from 'lucide-react';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Shuffle, Dices, Wrench, Save, Check } from 'lucide-react';
 
 // 1500 -> "+1.5s", -40 -> "-40ms". Past a second the ms count stops being
 // readable at a glance.
@@ -38,7 +38,7 @@ function SpeedBracketReadout({ params }) {
   );
 }
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount, patternPlan, toolActions, toolSelection, onApplyTool }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, stashScene, stashSaveState, onSaveToStash, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount, patternPlan, toolActions, toolSelection, onApplyTool }) {
   // A video that is out by seconds would take dozens of clicks on the nudge
   // buttons, so a typed amount sits under them.
   const [shiftAmount, setShiftAmount] = React.useState('1');
@@ -267,6 +267,25 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
             <Download size={16} />
             Download
           </button>
+
+          {/* Only for a scene opened from Stash, and only where the server can
+              write to the library (canSave) — elsewhere Download is the way out. */}
+          {stashScene?.canSave && (
+            <button
+              onClick={onSaveToStash}
+              disabled={!canDownload || stashSaveState !== 'idle'}
+              title="Replace the scene's funscript in Stash (the old one is kept as .bak)"
+              className={`py-2 px-4 text-sm font-bold rounded-xl shadow-sm transition-all flex items-center justify-center gap-2 ${
+                canDownload && stashSaveState === 'idle'
+                  ? 'bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/40 dark:hover:bg-violet-800/60 text-violet-800 dark:text-violet-300 border border-violet-200 dark:border-violet-700/50'
+                  : 'bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-600 cursor-not-allowed border border-transparent'
+              }`}
+            >
+              {stashSaveState === 'saving' ? <Loader2 size={16} className="animate-spin" />
+                : stashSaveState === 'saved' ? <Check size={16} /> : <Save size={16} />}
+              {stashSaveState === 'saving' ? 'Saving…' : stashSaveState === 'saved' ? 'Saved to Stash' : 'Save to Stash'}
+            </button>
+          )}
 
           {/* Whole-script timing. A script that is right but late — an import,
               or a take tapped a beat behind — needs sliding, not rebuilding.

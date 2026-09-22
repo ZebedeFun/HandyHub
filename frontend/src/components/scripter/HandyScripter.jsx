@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, Upload, Settings, Maximize, Minimize } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import GenerationControls from './GenerationControls';
 import Heatmap from './Heatmap';
 import DeviceSimulator from './DeviceSimulator';
@@ -213,6 +213,79 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   // and thrown away when a different video is loaded.
   const [audioEnvelope, setAudioEnvelope] = useState(null);
 
+  // A scene opened from Stash (/scripter?stashScene=123). The video streams
+  // through the backend rather than being uploaded, and a finished script can
+  // be saved straight back beside it.
+  const [searchParams] = useSearchParams();
+  const stashSceneId = searchParams.get('stashScene');
+  const [stashScene, setStashScene] = useState(null);
+  const [stashSaveState, setStashSaveState] = useState('idle'); // 'idle' | 'saving' | 'saved'
+
+  useEffect(() => {
+    if (!stashSceneId) return;
+    let cancelled = false;
+
+    const load = async () => {
+      const res = await fetch(`/api/stash/scenes/${stashSceneId}`);
+      const scene = await res.json();
+      if (!res.ok) throw new Error(scene.error || `Stash lookup failed (${res.status})`);
+      if (cancelled) return;
+
+      const streamUrl = `/api/stash/scenes/${stashSceneId}/stream`;
+      setStashScene(scene);
+      setStashSaveState('idle');
+      setVideoUrl(streamUrl);
+      // Stands in for an uploaded File: Audio mode only needs a name and the
+      // bytes, and fetching the bytes waits until it is actually used.
+      setVideoFile({
+        name: scene.basename || scene.title,
+        arrayBuffer: () => fetch(streamUrl).then(r => r.arrayBuffer())
+      });
+      setAudioEnvelope(null);
+      setImportedScriptName(null);
+      resetFunscript(null);
+
+      if (!scene.interactive) return;
+      const scriptRes = await fetch(`/api/stash/scenes/${stashSceneId}/funscript`);
+      if (!scriptRes.ok) throw new Error(`Could not load the scene's funscript (${scriptRes.status})`);
+      const json = await scriptRes.json();
+      if (cancelled) return;
+      if (!Array.isArray(json.actions)) throw new Error("The scene's funscript is not valid");
+      resetFunscript(json);
+      setImportedScriptName((scene.basename || 'scene').replace(/\.[^/.]+$/, '') + '.funscript');
+    };
+
+    load().catch(err => {
+      if (!cancelled) alert(`Could not open Stash scene ${stashSceneId}: ${err.message}`);
+    });
+    return () => { cancelled = true; };
+  }, [stashSceneId]);
+
+  const handleSaveToStash = async () => {
+    if (!stashScene || !funscript) return;
+    if (!window.confirm(`Save this script to Stash as the funscript for "${stashScene.title}"?\n\nThe current one is kept as a .bak.`)) return;
+    setStashSaveState('saving');
+    try {
+      const res = await fetch(`/api/stash/scenes/${stashScene.id}/funscript`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(funscript)
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(result.error || `Save failed (${res.status})`);
+      setStashSaveState('saved');
+      if (result.scanWarning) alert(result.scanWarning);
+    } catch (err) {
+      setStashSaveState('idle');
+      alert(err.message);
+    }
+  };
+
+  // Any edit after a save means Stash no longer has the latest.
+  useEffect(() => {
+    setStashSaveState(s => (s === 'saved' ? 'idle' : s));
+  }, [funscript]);
+
   const [params, setParams] = useState({
     minSpeed: 0,
     maxSpeed: 5,
@@ -234,6 +307,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     if (file) {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
+      setStashScene(null);
       setImportedScriptName(null);
       setAudioEnvelope(null);
       resetFunscript(null); // clear old script
@@ -260,6 +334,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     if (file.type.startsWith('video/') || file.name.endsWith('.mp4')) {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
+      setStashScene(null);
       setAudioEnvelope(null);
     } else if (file.name.endsWith('.funscript') || file.type === 'application/json') {
       const reader = new FileReader();
@@ -590,6 +665,11 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                 {videoFile && importedScriptName ? ` + ${importedScriptName}` : ''}
               </p>
             )}
+            {stashScene && (
+              <p className="text-xs font-semibold text-violet-600 dark:text-violet-400">
+                From Stash · scene {stashScene.id}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -640,6 +720,9 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               onGenerate={handleGenerateClick}
               canDownload={!!funscript}
               onDownload={handleDownload}
+              stashScene={stashScene}
+              stashSaveState={stashSaveState}
+              onSaveToStash={handleSaveToStash}
               onFixJitterWholeScript={handleFixJitterWholeScript}
               onUndo={undo}
               onRedo={redo}

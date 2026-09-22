@@ -225,6 +225,18 @@ export default function SettingsModal({ settings, onSave, onClose }) {
                   </div>
               </div>
             </div>
+            <div className="border-b dark:border-gray-700 pb-4 mb-4">
+              <h3 className="text-lg font-bold text-gray-800 dark:text-white mb-1">Stash (Optional)</h3>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">Lets the Scripter open scenes from a Stash server. Leave blank to turn it off. Saving scripts back also needs the library mounted into HandyHub — see docker-compose.example.yml.</p>
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Stash URL (as the HandyHub server reaches it)</label>
+                <input type="text" name="stashUrl" value={localSettings.stashUrl || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="e.g. http://stash:9999" />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Stash API Key</label>
+                <input type="password" name="stashApiKey" value={localSettings.stashApiKey || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="Stash → Settings → Security" />
+              </div>
+            </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Character Name</label>
               <input type="text" name="characterName" value={localSettings.characterName || ''} onChange={handleChange} className="w-full border dark:border-gray-600 rounded-lg p-3 bg-gray-50 dark:bg-gray-700 dark:text-white focus:bg-white dark:focus:bg-gray-600 focus:ring-2 focus:ring-pink-500 outline-none transition" placeholder="e.g. Samantha" />
