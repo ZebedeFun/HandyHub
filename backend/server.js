@@ -12,7 +12,9 @@ const upload = multer({ storage: multer.memoryStorage() });
 app.use('/api/stash', require('./stash'));
 
 app.use(cors());
-app.use(express.json());
+// Funscripts for long videos run well past the 100kb default, which failed
+// Sync to Handy (/api/host-script) on exactly the scripts worth syncing.
+app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true })); // Added urlencoded parsing just in case
 
 // The site sits behind nginx Basic Auth. Any 401 that reaches the browser reads
@@ -318,17 +320,13 @@ app.post('/api/tts', async (req, res) => {
     }
 });
 
-// Serve static frontend files in production
-if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, '../frontend/dist')));
-    app.get('*', (req, res) => {
-        res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
-    });
-}
-
 // Backgrounds Endpoint
 app.get('/api/backgrounds', (req, res) => {
-    const bgDir = path.join(__dirname, '../frontend/public/backgrounds');
+    // Vite copies public/ into dist/ at build time, and the Docker image only
+    // carries dist/, so in production that is where the images are.
+    const bgDir = process.env.NODE_ENV === 'production'
+        ? path.join(__dirname, '../frontend/dist/backgrounds')
+        : path.join(__dirname, '../frontend/public/backgrounds');
     if (!fs.existsSync(bgDir)) return res.json({ images: [] });
     try {
         const files = fs.readdirSync(bgDir);
@@ -338,6 +336,15 @@ app.get('/api/backgrounds', (req, res) => {
         res.status(500).json({ error: 'Failed to read backgrounds' });
     }
 });
+
+// Serve static frontend files in production. Last, because the catch-all
+// answers every GET — any route registered after it is never reached.
+if (process.env.NODE_ENV === 'production') {
+    app.use(express.static(path.join(__dirname, '../frontend/dist')));
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(__dirname, '../frontend/dist/index.html'));
+    });
+}
 
 app.listen(port, () => {
     console.log(`Backend proxy running on http://localhost:${port}`);
