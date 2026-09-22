@@ -186,7 +186,23 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   // the loaded video's own soundtrack (the same engine the Auto Sync tab runs
   // live). Either way the result lands in the edit history, so the heatmap
   // tools, undo and Download all apply to it.
-  const [genMode, setGenMode] = useState('procedural'); // 'procedural' | 'audio'
+  const [genMode, setGenMode] = useState('procedural'); // 'procedural' | 'tap' | 'audio' | 'tools'
+
+  // The timeline and the heatmap each keep their own range selection. The
+  // Tools tab works on whichever was set most recently, and falls back to the
+  // other if that one is cleared.
+  const [selections, setSelections] = useState({ timeline: null, heatmap: null, last: null });
+  const reportSelection = (source) => (range) => setSelections(prev => {
+    const same = (a, b) => (a && b ? a.startMs === b.startMs && a.endMs === b.endMs : a === b);
+    if (same(prev[source], range)) return prev;
+    const other = source === 'timeline' ? 'heatmap' : 'timeline';
+    const last = range ? source : (prev.last === source ? (prev[other] ? other : null) : prev.last);
+    return { ...prev, [source]: range, last };
+  });
+  const toolSelection = selections.last ? selections[selections.last] : null;
+  // Stable identities so the children's report effects don't re-fire each render.
+  const timelineRangeReporter = React.useMemo(() => reportSelection('timeline'), []);
+  const heatmapRangeReporter = React.useMemo(() => reportSelection('heatmap'), []);
   const [audioParams, setAudioParams] = useState(DEFAULT_AUDIO_PARAMS);
   const [isAnalyzingAudio, setIsAnalyzingAudio] = useState(false);
   // Which pattern each section got on the last Patterned generate, for the panel.
@@ -344,6 +360,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   };
 
   const handleGenerateClick = () => {
+    if (genMode === 'tools') return;
     if (genMode === 'tap') return toggleRecording();
     return genMode === 'audio' ? handleGenerateFromAudio() : handleGenerate();
   };
@@ -360,6 +377,12 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     if (!funscript || !funscript.actions) return;
     const newScript = modifyPartialScript(funscript.actions, startMs, endMs, type);
     commitFunscript({ ...funscript, ...newScript });
+  };
+
+  // Script Toolbox results are whole action arrays.
+  const handleApplyTool = (actions) => {
+    if (!funscript) return;
+    commitFunscript({ ...funscript, actions });
   };
 
   const handleFixJitterWholeScript = () => {
@@ -643,6 +666,9 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               onShiftScript={handleShiftScript}
               shiftedByMs={shiftedByMs}
               shiftTrimmedCount={shiftTrimmed.length}
+              toolActions={funscript ? funscript.actions : null}
+              toolSelection={toolSelection}
+              onApplyTool={handleApplyTool}
             />
           </div>
           
@@ -738,6 +764,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                     onMovePoint={handleMovePoint}
                     onRegenerateSelection={handleRegenerateSelection}
                     onModifySelection={handleModifySelection}
+                    onRangeChange={timelineRangeReporter}
                     pendingActions={pendingTaps}
                   />
                   <div className="h-40">
@@ -748,6 +775,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                       currentTimeMs={currentTimeMs} 
                       onRegenerateSelection={handleRegenerateSelection}
                       onModifySelection={handleModifySelection}
+                      onRangeChange={heatmapRangeReporter}
                     />
                     ) : (
                       <div className="w-full h-full bg-gray-200 dark:bg-gray-800 rounded-lg flex items-center justify-center border border-gray-300 dark:border-gray-700 border-dashed">

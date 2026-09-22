@@ -12,7 +12,7 @@ const getSpeedColor = (deltaPos, deltaMs) => {
   return '#ef4444';
 };
 
-export default function Heatmap({ actions, durationMs, currentTimeMs, onRegenerateSelection, onModifySelection }) {
+export default function Heatmap({ actions, durationMs, currentTimeMs, onRegenerateSelection, onModifySelection, onRangeChange }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   
@@ -120,6 +120,12 @@ export default function Heatmap({ actions, durationMs, currentTimeMs, onRegenera
   const hasSelection = selectionStart !== null && selectionEnd !== null && !isDragging;
   const start = Math.min(selectionStart || 0, selectionEnd || 0);
   const end = Math.max(selectionStart || 0, selectionEnd || 0);
+
+  // A click without a drag leaves start === end; that is not a range.
+  const reportable = hasSelection && end - start >= 80;
+  useEffect(() => {
+    onRangeChange?.(reportable ? { startMs: Math.round(start), endMs: Math.round(end) } : null);
+  }, [reportable, start, end, onRangeChange]);
 
   return (
     <div className="w-full h-full flex flex-col relative bg-gray-900 rounded-lg overflow-hidden shadow-inner border border-gray-700 select-none">

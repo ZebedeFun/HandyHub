@@ -1,6 +1,7 @@
 import React from 'react';
 import { describeSpeedBracket } from '../../services/scriptGenerator';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Shuffle, Dices } from 'lucide-react';
+import ScriptToolbox from './ScriptToolbox';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Shuffle, Dices, Wrench } from 'lucide-react';
 
 // 1500 -> "+1.5s", -40 -> "-40ms". Past a second the ms count stops being
 // readable at a glance.
@@ -37,7 +38,7 @@ function SpeedBracketReadout({ params }) {
   );
 }
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount, patternPlan }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount, patternPlan, toolActions, toolSelection, onApplyTool }) {
   // A video that is out by seconds would take dozens of clicks on the nudge
   // buttons, so a typed amount sits under them.
   const [shiftAmount, setShiftAmount] = React.useState('1');
@@ -47,6 +48,8 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
 
   const isAudio = mode === 'audio';
   const isTap = mode === 'tap';
+  const isTools = mode === 'tools';
+  const isProcedural = !isAudio && !isTap && !isTools;
   const isZoned = audioParams?.structure === 'zoned';
   const isPatterned = audioParams?.structure === 'patterned';
   // Both split the track into sections; Flowing does not.
@@ -136,41 +139,54 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
             type="button"
             onClick={() => setMode('procedural')}
             title="Build a script from the parameters below"
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex flex-1 items-center justify-center gap-1.5 ${
-              !isAudio
+            className={`px-1.5 sm:px-2 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors flex flex-1 min-w-0 items-center justify-center gap-1 ${
+              isProcedural
                 ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             }`}
           >
-            <Sliders size={14} /> Parameters
+            <Sliders size={14} className="shrink-0 hidden sm:block" /> Parameters
           </button>
           <button
             type="button"
             onClick={() => setMode('tap')}
             title="Tap along with the video and keep what you tapped"
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex flex-1 items-center justify-center gap-1.5 ${
+            className={`px-1.5 sm:px-2 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors flex flex-1 min-w-0 items-center justify-center gap-1 ${
               isTap
                 ? 'bg-white dark:bg-gray-600 shadow-sm text-amber-600 dark:text-amber-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             }`}
           >
-            <Hand size={14} /> Tap
+            <Hand size={14} className="shrink-0 hidden sm:block" /> Tap
           </button>
           <button
             type="button"
             onClick={() => setMode('audio')}
             title="Build a script from the loaded video's soundtrack"
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors flex flex-1 items-center justify-center gap-1.5 ${
+            className={`px-1.5 sm:px-2 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors flex flex-1 min-w-0 items-center justify-center gap-1 ${
               isAudio
                 ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
             }`}
           >
-            <Music size={14} /> Audio
+            <Music size={14} className="shrink-0 hidden sm:block" /> Audio
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('tools')}
+            title="Repair and tidy the loaded script — from here or anywhere else"
+            className={`px-1.5 sm:px-2 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors flex flex-1 min-w-0 items-center justify-center gap-1 ${
+              isTools
+                ? 'bg-white dark:bg-gray-600 shadow-sm text-teal-600 dark:text-teal-300'
+                : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
+            }`}
+          >
+            <Wrench size={14} className="shrink-0 hidden sm:block" /> Tools
           </button>
         </div>
         
         <div className="flex flex-wrap items-center gap-2">
+          {!isTools && (
           <button 
             onClick={onGenerate}
             disabled={!canGenerate}
@@ -196,6 +212,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 ? (isRecording ? `Stop & Apply (${tapCount})` : 'Record Taps')
                 : isAudio ? 'Generate from Audio' : 'Generate Complete Script'}
           </button>
+          )}
           
           <div className="flex items-center gap-1 mr-1">
             <button
@@ -337,7 +354,19 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
         </div>
       </div>
 
-      {!collapsed && !isAudio && !isTap && (
+      {!collapsed && isTools && (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-6 overflow-y-auto min-h-0 pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
+        <ScriptToolbox
+          actions={toolActions}
+          selection={toolSelection}
+          onApply={onApplyTool}
+          Hint={Hint}
+          SectionTitle={SectionTitle}
+        />
+      </div>
+      )}
+
+      {!collapsed && isProcedural && (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-6 overflow-y-auto min-h-0 pr-2 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-gray-600">
         
         {/* Section 1: Behavior */}

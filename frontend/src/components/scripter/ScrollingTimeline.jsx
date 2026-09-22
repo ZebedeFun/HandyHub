@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Eye, Plus, Eraser, BoxSelect, ZoomIn, ZoomOut, X, RefreshCw } from 'lucide-react';
-import { DEVICE_MAX_UNITS_PER_SEC } from '../../services/handyService';
-import { MIN_GAP_MS } from '../../services/scriptGenerator';
+import { overDeviceLimit } from '../../services/scriptTools';
 
 const getSpeedColor = (deltaPos, deltaMs) => {
   if (deltaMs === 0) return '#3b82f6';
@@ -21,12 +20,7 @@ const getSpeedColor = (deltaPos, deltaMs) => {
 // carriage's full travel. A device set to a narrower slide zone covers less
 // distance for the same script and can keep up with more than this allows, so
 // a marked segment means "too fast at full range", not "always too fast".
-const overDeviceLimit = (a, b) => {
-  const deltaMs = b.at - a.at;
-  if (deltaMs <= 0) return true;
-  if (deltaMs < MIN_GAP_MS) return true;
-  return Math.abs(b.pos - a.pos) / (deltaMs / 1000) > DEVICE_MAX_UNITS_PER_SEC;
-};
+// overDeviceLimit lives in scriptTools, so Fit to Handy clears exactly what is marked here.
 
 // Zoom steps for the visible window, in ms. Two seconds is about as far in as
 // is useful (a fast stroke is ~200ms, so points are still well separated);
@@ -94,6 +88,7 @@ export default function ScrollingTimeline({
   onMovePoint,
   onRegenerateSelection,
   onModifySelection,
+  onRangeChange,
 }) {
   const canvasRef = useRef(null);
   const requestRef = useRef();
@@ -126,6 +121,8 @@ export default function ScrollingTimeline({
   // back to times against this, so a click always means what the user saw,
   // even mid-playback when the video has already moved on.
   const drawnTimeRef = useRef(0);
+
+  useEffect(() => { onRangeChange?.(range); }, [range, onRangeChange]);
 
   const setMode = (id) => {
     setEditMode(id);
