@@ -1,7 +1,7 @@
 import React from 'react';
-import { Sparkles, Gauge, Spline, MoveVertical, BarChart3, TrendingUp, Crosshair } from 'lucide-react';
+import { Sparkles, Gauge, Spline, MoveVertical, BarChart3, TrendingUp, Crosshair, Activity, Loader2 } from 'lucide-react';
 import {
-  scriptStats, cleanUp, fitToHandy, simplify, fitToRange, strokeHeightMatch, driftFix,
+  scriptStats, cleanUp, fitToHandy, simplify, fitToRange, strokeHeightMatch, driftFix, rhythmRepair,
   DEVICE_MAX_UNITS_PER_SEC,
 } from '../../services/scriptTools';
 
@@ -20,6 +20,8 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
   const [fit, setFit] = React.useState({ min: 0, max: 100 });
   const [height, setHeight] = React.useState({ targetMedian: 75, strength: 100 });
   const [drift, setDrift] = React.useState({ windowSec: 8 });
+  const [rhythm, setRhythm] = React.useState({ minConfidence: 60, evenHeights: 75, maxGapSec: 4, fitDevice: true });
+  const [busy, setBusy] = React.useState(null); // tool name while a slow tool runs
 
   const hasScript = actions && actions.length >= 2;
   const range = selection && useSelection ? selection : null;
@@ -28,6 +30,8 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
   // A new selection is almost always the thing you want to work on next.
   React.useEffect(() => { if (selection) setUseSelection(true); }, [selection]);
 
+  // A tool returns the new actions, null for "nothing to do", or
+  // { actions, message } when it has something to report either way.
   const run = (tool, fn, { needsSelection = false, emptyMessage } = {}) => {
     if (!hasScript) return;
     if (needsSelection && !range) {
@@ -35,13 +39,22 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
       return;
     }
     const before = scriptStats(actions, range);
-    const next = fn(actions, range);
+    const out = fn(actions, range);
+    const next = Array.isArray(out) ? out : out?.actions;
+    const message = Array.isArray(out) ? null : out?.message;
     if (!next) {
-      setResult({ tool, error: emptyMessage || 'Nothing to change here.' });
+      setResult({ tool, error: message || emptyMessage || 'Nothing to change here.' });
       return;
     }
     onApply(next);
-    setResult({ tool, before, after: scriptStats(next, range), next, range });
+    setResult({ tool, before, after: scriptStats(next, range), next, range, message });
+  };
+
+  // For tools that take a second or two on a long script: paint the busy
+  // state first, then run.
+  const runSlow = (tool, fn, opts) => {
+    setBusy(tool);
+    setTimeout(() => { try { run(tool, fn, opts); } finally { setBusy(null); } }, 30);
   };
 
   const slider = (label, value, onChange, { min, max, step = 1, unit = '', accent = 'accent-teal-500', lowHint, highHint, display } = {}) => (
@@ -63,10 +76,11 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
     <button
       type="button"
       onClick={onClick}
-      disabled={!hasScript || disabled}
-      className="w-full mt-3 py-1.5 text-xs font-bold rounded-lg transition-colors bg-teal-600 hover:bg-teal-500 text-white disabled:bg-gray-300 disabled:text-gray-500 dark:disabled:bg-gray-700 disabled:cursor-not-allowed"
+      disabled={!hasScript || disabled || !!busy}
+      className="w-full mt-3 py-1.5 text-xs font-bold rounded-lg transition-colors bg-teal-600 hover:bg-teal-500 text-white disabled:bg-gray-300 disabled:text-gray-500 dark:disabled:bg-gray-700 disabled:cursor-not-allowed flex items-center justify-center gap-1.5"
     >
-      {label}
+      {busy === label && <Loader2 size={12} className="animate-spin" />}
+      {busy === label ? 'Working…' : label}
     </button>
   );
 
@@ -145,7 +159,7 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
         </div>
         {result && (result.error || result.next === actions) && (
           <p className={`mt-2 text-[10px] leading-tight ${result.error ? 'text-amber-600 dark:text-amber-400' : 'text-teal-700 dark:text-teal-300'}`}>
-            {result.error ? `${result.tool}: ${result.error}` : `${result.tool} applied — Undo reverses it.`}
+            {result.error ? `${result.tool}: ${result.error}` : `${result.tool} applied${result.message ? ` — ${result.message}` : ''}. Undo reverses it.`}
           </p>
         )}
       </div>
@@ -159,6 +173,20 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
           Finish with Fit to Handy
         </label>
         {applyButton('Clean Up', () => run('Clean Up', (a, r) => cleanUp(a, r, { ...clean, amplify: clean.amplify / 100 })))}
+      </>)}
+
+      {card(Activity, 'Rhythm Repair', 'For AI-made scripts that follow the action but badly — missed strokes, stubby half-strokes, stray blips. Finds where the motion repeats, then rebuilds those stretches as steady strokes: real tops and bottoms that fit the rhythm are kept (so it stays in sync with the video), missing ones are added, and heights are evened out. Anything without a clear rhythm is left exactly as it was.', <>
+        {slider('Rebuild when the motion repeats at least', rhythm.minConfidence, v => setRhythm(r => ({ ...r, minConfidence: v })), { min: 40, max: 85, step: 5, unit: '%', lowHint: 'Looser: rebuilds more', highHint: 'Only clear rhythm' })}
+        {slider('Even out stroke heights', rhythm.evenHeights, v => setRhythm(r => ({ ...r, evenHeights: v })), { min: 0, max: 100, step: 5, unit: '%', lowHint: 'Keep heights as tracked', highHint: 'Every stroke full height' })}
+        {slider('Longest stall to fill', rhythm.maxGapSec, v => setRhythm(r => ({ ...r, maxGapSec: v })), { min: 1, max: 10, unit: 's', lowHint: 'Only brief dropouts', highHint: 'Bridge long stalls' })}
+        <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+          <input type="checkbox" checked={rhythm.fitDevice} onChange={e => setRhythm(r => ({ ...r, fitDevice: e.target.checked }))} />
+          Finish with Fit to Handy
+        </label>
+        <Hint>Works on the motion the script already has — it does not listen to the audio. Takes a second or two on a long script.</Hint>
+        {applyButton('Repair Rhythm', () => runSlow('Repair Rhythm', (a, r) => rhythmRepair(a, r, {
+          minConfidence: rhythm.minConfidence / 100, evenHeights: rhythm.evenHeights / 100, maxGapSec: rhythm.maxGapSec, fitDevice: rhythm.fitDevice,
+        })))}
       </>)}
 
       {card(Gauge, 'Fit to Handy', 'Clears the red "too fast" marks: drops points closer together than the device can reverse, and shortens strokes it cannot travel in time. Timing is kept.', <>

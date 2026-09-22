@@ -505,3 +505,318 @@ export const cleanUp = (actions, range, { wobble = 8, tolerance = 3, amplify = 1
     if (fitDevice) p = fitToHandyPoints(p, {}, lock);
     return p;
   });
+
+// ---------------------------------------------------------------------------
+// Rhythm Repair
+// ---------------------------------------------------------------------------
+//
+// For scripts that found the video's rhythm but lost it here and there — an AI
+// tracker missing the odd beat, or going "stubby" (tiny strokes) when it lost
+// sight of the motion. Wherever the local rhythm is clear, it:
+//   a) fills missing beats: a stroke that lasts ~3, 5, 7... half-strokes
+//      instead of one is split into that many strokes;
+//   b) rebuilds stubby stretches: a run of strokes far shorter than the local
+//      typical height is re-laid as full strokes on the local rhythm.
+// Anything longer than the limit is left alone — a long gap or a long quiet
+// stretch is more likely a deliberate rest than a tracking failure.
+
+// Direction-change events (real strokes only), each marked top or bottom.
+function rhythmEvents(pts) {
+  const ev = majorTurningIndices(pts).map(i => ({ i, at: pts[i].at, pos: pts[i].pos }));
+  if (ev.length < 2) return ev;
+  const firstMove = ev.findIndex((e, k) => k > 0 && e.pos !== ev[k - 1].pos);
+  ev[0].top = firstMove > 0 ? ev[firstMove].pos < ev[firstMove - 1].pos : true;
+  for (let k = 1; k < ev.length; k++) {
+    const d = ev[k].pos - ev[k - 1].pos;
+    ev[k].top = d > 0 ? true : d < 0 ? false : ev[k - 1].top;
+  }
+  return ev;
+}
+
+// The rhythm around each stroke, from the strokes within ±window/2 of it:
+// half-stroke time H, a full stroke's height, the top/bottom levels, and how
+// much of the window actually follows that rhythm (coverage, 0-1).
+function localRhythms(strokes, windowMs) {
+  const out = new Array(strokes.length).fill(null);
+  let lo = 0;
+  let hi = 0;
+  for (let k = 0; k < strokes.length; k++) {
+    const t = strokes[k].mid;
+    while (lo < strokes.length && strokes[lo].mid < t - windowMs / 2) lo++;
+    while (hi < strokes.length && strokes[hi].mid <= t + windowMs / 2) hi++;
+    const win = strokes.slice(lo, hi);
+    const amps = win.map(s => s.amp).filter(a => a >= 10).sort((a, b) => a - b);
+    if (amps.length < 4) continue;
+    // "Full" height = upper quartile, so a stubby stretch cannot drag it down.
+    const fullAmp = quantile(amps, 0.75);
+    const good = win.filter(s => s.amp >= fullAmp * 0.5);
+    if (good.length < 3) continue;
+    const durs = good.map(s => s.dur).sort((a, b) => a - b);
+    const h0 = median(durs);
+    // A rhythm is *consistent* timing. Without this, random motion passed:
+    // enough of any jumble lands within a loose band of its own median.
+    const spread = (quantile(durs, 0.75) - quantile(durs, 0.25)) / h0;
+    if (spread > 0.35) continue;
+    const regular = good.filter(s => s.dur >= h0 * 0.7 && s.dur <= h0 * 1.4);
+    if (regular.length < 3) continue;
+    const H = median(regular.map(s => s.dur));
+    const span = win[win.length - 1].end - win[0].start;
+    const coverage = span > 0 ? Math.min(1, regular.reduce((sum, s) => sum + s.dur, 0) / span) : 0;
+    const tops = regular.map(s => (s.a.top ? s.a.pos : s.b.pos));
+    const bottoms = regular.map(s => (s.a.top ? s.b.pos : s.a.pos));
+    out[k] = { H, fullAmp, coverage, top: median(tops), bottom: median(bottoms) };
+  }
+  return out;
+}
+
+function strokesFrom(ev) {
+  const strokes = [];
+  for (let k = 0; k + 1 < ev.length; k++) {
+    const a = ev[k];
+    const b = ev[k + 1];
+    strokes.push({ a, b, amp: Math.abs(b.pos - a.pos), dur: b.at - a.at, start: a.at, end: b.at, mid: (a.at + b.at) / 2 });
+  }
+  return strokes;
+}
+
+// ---- Tempo tracking ----------------------------------------------------------
+//
+// AI trackers match the on-screen action, but badly: each top and bottom lands
+// a little early or late, at a random height, some are missing and some are
+// doubled. Measuring how the smoothed motion repeats (autocorrelation) failed
+// on exactly that — random heights and jitter weakened the true cycle below
+// its multiples. So the tempo is read from the script's own tops and bottoms:
+// for each candidate cycle length, how often is a top followed by another top
+// one cycle later AND by a bottom half a cycle later (and the same for
+// bottoms)? The half-cycle test is what rules out locking on at half speed —
+// at double the true length, a top sits where the bottom should be.
+
+function nearestOfKind(events, t, top, tol) {
+  // binary search for first event at >= t - tol
+  let lo = 0;
+  let hi = events.length;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (events[m].at < t - tol) lo = m + 1; else hi = m; }
+  for (let i = lo; i < events.length && events[i].at <= t + tol; i++) if (events[i].top === top) return true;
+  return false;
+}
+
+/**
+ * Tempo over time: for each hop, the full up-and-down cycle length (ms) and a
+ * 0-1 confidence (the share of tops/bottoms that fit that cycle).
+ */
+function trackTempo(pts, { windowSec = 8, hopSec = 1, minCycleMs = 200, maxCycleMs = 3000 } = {}) {
+  const ev = rhythmEvents(pts).filter((e, k, all) => k === 0 || Math.abs(e.pos - all[k - 1].pos) >= 1);
+  const track = [];
+  if (ev.length < 4) return track;
+  const t0 = pts[0].at;
+  const t1 = pts[pts.length - 1].at;
+  const halfWin = (windowSec * 1000) / 2;
+  let lo = 0;
+  let hi = 0;
+  for (let at = t0; at <= t1; at += hopSec * 1000) {
+    while (lo < ev.length && ev[lo].at < at - halfWin) lo++;
+    while (hi < ev.length && ev[hi].at <= at + halfWin) hi++;
+    const win = ev.slice(lo, hi);
+    if (win.length < 6) { track.push({ at, cycle: 0, conf: 0 }); continue; }
+    // Timing tolerance is fixed, not a share of the cycle: tracker jitter is
+    // a few tens of ms whatever the pace, and a tolerance that grew with the
+    // cycle let long cycles "fit" busy scripts by pure chance.
+    const spanMs = win[win.length - 1].at - win[0].at || 1;
+    let best = { cycle: 0, conf: 0 };
+    const confAt = new Map();
+    for (let cycle = minCycleMs; cycle <= maxCycleMs; cycle += 10) {
+      const tol = Math.min(90, cycle * 0.2);
+      // Chance that an event of a given kind lands within ±tol at random.
+      const chance = 1 - Math.exp(-((win.length / 2) / spanMs) * 2 * tol);
+      let hits = 0;
+      let tries = 0;
+      for (const e of win) {
+        // only events whose look-ahead still falls inside the window count
+        if (e.at + cycle > at + halfWin) continue;
+        tries += 2;
+        if (nearestOfKind(ev, e.at + cycle, e.top, tol)) hits++;
+        if (nearestOfKind(ev, e.at + cycle / 2, !e.top, tol)) hits++;
+      }
+      if (tries < 8) continue;
+      const conf = Math.max(0, (hits / tries - chance) / (1 - chance));
+      confAt.set(cycle, conf);
+      // Prefer the shorter cycle on a near-tie: a real beat also "fits" at
+      // multiples of itself wherever strokes are missing.
+      if (conf > best.conf + 0.02) best = { cycle, conf };
+    }
+    // Three cycles pass the same test as one (a top again after three, a
+    // bottom after one and a half), and jitter decides which scores higher.
+    // A motion that repeats every C also repeats every C/2, C/3... only if it
+    // really is that fast — so take the shortest fraction (any 1/n) that
+    // fits nearly as well. Five cycles fooled a check that stopped at 1/4.
+    if (best.cycle) {
+      const around = (c) => {
+        let m = 0;
+        for (let d = -20; d <= 20; d += 10) m = Math.max(m, confAt.get(Math.round((c + d) / 10) * 10) || 0);
+        return m;
+      };
+      for (let div = Math.floor(best.cycle / minCycleMs); div >= 2; div--) {
+        const c = best.cycle / div;
+        const cf = around(c);
+        if (cf >= best.conf * 0.8) { best = { cycle: Math.round(c / 10) * 10, conf: cf }; break; }
+      }
+    }
+    track.push({ at, cycle: best.cycle, conf: best.conf });
+  }
+  // The pace drifts, it does not jump: smooth over neighbouring hops.
+  return track.map((p, i) => {
+    const near = track.slice(Math.max(0, i - 2), i + 3).filter(q => q.cycle > 0).map(q => q.cycle);
+    return near.length ? { ...p, cycle: median(near) } : p;
+  });
+}
+
+const tempoAt = (track, t) => {
+  if (!track.length) return null;
+  const hop = track.length > 1 ? track[1].at - track[0].at : 1000;
+  const i = Math.max(0, Math.min(track.length - 1, Math.round((t - track[0].at) / hop)));
+  return track[i];
+};
+
+/** How rhythmic a script (or range) is: tempo in direction changes per minute
+ *  (the unit the Tempo slider uses) and the share of time that follows it. */
+export function detectRhythm(actions, range, { minConfidence = 0.6 } = {}) {
+  const all = tidy(actions || []);
+  const pts = range ? all.filter(a => a.at >= range.startMs && a.at <= range.endMs) : all;
+  if (pts.length < 10) return null;
+  const track = trackTempo(pts);
+  const good = track.filter(p => p.cycle > 0 && p.conf >= minConfidence);
+  if (!good.length) return { perMin: 0, share: 0 };
+  return { perMin: Math.round(120000 / median(good.map(p => p.cycle))), share: good.length / track.length };
+}
+
+/**
+ * Rhythm Repair: rebuild rhythmic sections as steady strokes that follow the
+ * beat. Steps through each section one half-stroke at a time; where the
+ * original has a real top/bottom near where the beat expects one, that point
+ * is kept (so the script stays in sync with the video), where it has none a
+ * stroke is added, and extra blips in between are dropped. Heights are pulled
+ * towards the local full-stroke levels so stubby runs become real strokes.
+ * Stretches with no clear rhythm are left exactly as they were.
+ *
+ * @param {number} opts.evenHeights - 0-1: how far a short stroke is pulled
+ *   out to the local top/bottom level (never shrinks a big one).
+ * @param {number} opts.minConfidence - 0-1: how clearly the motion must repeat
+ *   before a stretch is rebuilt.
+ * @param {number} opts.maxGapSec - longest silence/stall to bridge with strokes.
+ * @param {boolean} opts.fitDevice - finish with Fit to Handy.
+ * @returns {{actions, message}} actions null when nothing was changed.
+ */
+export function rhythmRepair(actions, range, { evenHeights = 0.75, minConfidence = 0.6, maxGapSec = 4, fitDevice = true } = {}) {
+  let rebuiltMs = 0;
+  let added = 0;
+  let dropped = 0;
+  let sections = 0;
+  let spanMs = 0;
+  const actionsOut = applyToRange(actions, range, (pts, lock) => {
+    if (pts.length < 10) return null;
+    spanMs = pts[pts.length - 1].at - pts[0].at;
+    const track = trackTempo(pts);
+    const ev = rhythmEvents(pts);
+    if (ev.length < 6) return null;
+    const confident = (t) => { const p = tempoAt(track, t); return p && p.cycle > 0 && p.conf >= minConfidence ? p : null; };
+
+    // Local stroke levels: where tops and bottoms usually land nearby.
+    const levelsAt = (t) => {
+      const near = ev.filter(e => Math.abs(e.at - t) <= 4000);
+      const tops = near.filter(e => e.top).map(e => e.pos).sort((a, b) => a - b);
+      const bots = near.filter(e => !e.top).map(e => e.pos).sort((a, b) => a - b);
+      return {
+        top: tops.length ? quantile(tops, 0.85) : 90,
+        bottom: bots.length ? quantile(bots, 0.15) : 10,
+      };
+    };
+
+    // Walk the events; outside sections copy original points, inside rebuild.
+    const out = [];
+    let lastOutAt = -Infinity;
+    let p = 0; // original point cursor
+    let e = 0;
+    while (e < ev.length) {
+      const start = ev[e];
+      if (!confident(start.at)) { e++; continue; }
+
+      // Track a section from this event.
+      const section = [{ at: start.at, pos: start.pos, top: start.top, snapped: true }];
+      let cur = section[0];
+      let unsnappedMs = 0;
+      let cursor = e + 1;
+      for (;;) {
+        const tp = confident(cur.at);
+        if (!tp) break;
+        const half = tp.cycle / 2;
+        const expectAt = cur.at + half;
+        const wantTop = !cur.top;
+        // Candidates: events of the wanted kind within ±35% of a half-stroke.
+        let best = null;
+        let bestScore = -Infinity;
+        while (cursor < ev.length && ev[cursor].at <= cur.at) cursor++;
+        for (let c = cursor; c < ev.length && ev[c].at <= expectAt + half * 0.35; c++) {
+          const cand = ev[c];
+          if (cand.top !== wantTop || cand.at < expectAt - half * 0.35) continue;
+          const extremeness = wantTop ? cand.pos : 100 - cand.pos;
+          const score = extremeness - (Math.abs(cand.at - expectAt) / half) * 40;
+          if (score > bestScore) { bestScore = score; best = { cand, c }; }
+        }
+        if (expectAt > pts[pts.length - 1].at) break;
+        let next;
+        if (best) {
+          next = { at: best.cand.at, pos: best.cand.pos, top: wantTop, snapped: true };
+          unsnappedMs = 0;
+          cursor = best.c + 1;
+        } else {
+          next = { at: Math.round(expectAt), pos: null, top: wantTop, snapped: false };
+          unsnappedMs += half;
+          if (unsnappedMs > maxGapSec * 1000) break;
+        }
+        section.push(next);
+        cur = next;
+      }
+      // Trim predicted strokes off the end: a section ends on a real event.
+      while (section.length && !section[section.length - 1].snapped) section.pop();
+      if (section.length < 5) { e++; continue; }
+
+      // Copy original points before the section, then the section.
+      const sStart = section[0].at;
+      const sEnd = section[section.length - 1].at;
+      while (p < pts.length && pts[p].at < sStart) { if (pts[p].at > lastOutAt) out.push(pts[p]); p++; }
+      for (const s of section) {
+        const lv = levelsAt(s.at);
+        const level = s.top ? lv.top : lv.bottom;
+        let pos = s.pos == null ? level : s.pos;
+        if (s.pos != null) {
+          const short = s.top ? pos < level : pos > level;
+          if (short) pos = pos + (level - pos) * evenHeights;
+        }
+        if (s.pos == null) added++;
+        out.push({ at: s.at, pos: clampPos(pos) });
+      }
+      const before = p;
+      while (p < pts.length && pts[p].at <= sEnd) p++;
+      dropped += Math.max(0, (p - before) - section.filter(s => s.snapped).length);
+      lastOutAt = sEnd;
+      rebuiltMs += sEnd - sStart;
+      sections++;
+      while (e < ev.length && ev[e].at <= sEnd) e++;
+    }
+    if (!sections) return null;
+    while (p < pts.length) { if (pts[p].at > lastOutAt) out.push(pts[p]); p++; }
+    // Anchors borrowed from outside a range must come back unchanged.
+    if (lock.first) out[0] = pts[0];
+    if (lock.last) out[out.length - 1] = pts[pts.length - 1];
+    return fitDevice ? fitToHandyPoints(tidy(out), {}, lock) : tidy(out);
+  });
+
+  if (actionsOut) {
+    const share = spanMs > 0 ? Math.round((100 * rebuiltMs) / spanMs) : 0;
+    return {
+      actions: actionsOut,
+      message: `rebuilt ${sections} rhythmic section${sections === 1 ? '' : 's'} (${share}% of it): ${added} strokes added, ${dropped} stray points dropped`,
+    };
+  }
+  return { actions: null, message: 'No steady rhythm found here — nothing was changed.' };
+}
