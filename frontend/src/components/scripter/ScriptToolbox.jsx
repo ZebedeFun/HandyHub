@@ -1,7 +1,7 @@
 import React from 'react';
-import { Sparkles, Gauge, Spline, MoveVertical, BarChart3, TrendingUp, Crosshair, Activity, Loader2 } from 'lucide-react';
+import { Sparkles, Gauge, Spline, MoveVertical, BarChart3, TrendingUp, Crosshair, Activity, Loader2, Triangle } from 'lucide-react';
 import {
-  scriptStats, cleanUp, fitToHandy, simplify, fitToRange, strokeHeightMatch, driftFix, rhythmRepair,
+  scriptStats, cleanUp, fitToHandy, simplify, straighten, fitToRange, strokeHeightMatch, driftFix, rhythmRepair,
   DEVICE_MAX_UNITS_PER_SEC,
 } from '../../services/scriptTools';
 
@@ -14,7 +14,8 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
   const [useSelection, setUseSelection] = React.useState(true);
   const [result, setResult] = React.useState(null); // { tool, before, after } | { tool, error }
 
-  const [clean, setClean] = React.useState({ wobble: 8, tolerance: 3, amplify: 100, fitDevice: true });
+  const [clean, setClean] = React.useState({ wobble: 8, tolerance: 3, shoulder: 12, amplify: 100, fitDevice: true });
+  const [straight, setStraight] = React.useState({ size: 12 });
   const [handy, setHandy] = React.useState({ maxSpeed: Math.round(DEVICE_MAX_UNITS_PER_SEC), minGapMs: 100, trim: 'both' });
   const [simp, setSimp] = React.useState({ tolerance: 3 });
   const [fit, setFit] = React.useState({ min: 0, max: 100 });
@@ -164,9 +165,10 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
         )}
       </div>
 
-      {card(Sparkles, 'Clean Up', 'One click for a messy or AI-made script: removes tracker glitches, drops redundant points, removes small wobbles, then fits it to the Handy.', <>
+      {card(Sparkles, 'Clean Up', 'One click for a messy or AI-made script: removes tracker glitches, drops redundant points, removes small wobbles, straightens rounded tops and bottoms, then fits it to the Handy.', <>
         {slider('Remove wobbles under', clean.wobble, v => setClean(c => ({ ...c, wobble: v })), { min: 0, max: 20, unit: ' units', lowHint: '0: keep every reversal', highHint: '20: only clear strokes survive' })}
         {slider('Simplify tolerance', clean.tolerance, v => setClean(c => ({ ...c, tolerance: v })), { min: 0, max: 10, unit: ' units' })}
+        {slider('Straighten turns under', clean.shoulder, v => setClean(c => ({ ...c, shoulder: v })), { min: 0, max: 25, unit: ' units', lowHint: '0: keep rounded turns', highHint: '25: sharpen all but big easing' })}
         {slider('Amplify', clean.amplify, v => setClean(c => ({ ...c, amplify: v })), { min: 100, max: 200, step: 5, unit: '%', lowHint: '100%: heights unchanged', highHint: '200%: strokes doubled about the middle' })}
         <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
           <input type="checkbox" checked={clean.fitDevice} onChange={e => setClean(c => ({ ...c, fitDevice: e.target.checked }))} />
@@ -210,6 +212,12 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
       {card(Spline, 'Simplify', 'Keeps every change of direction and drops the points in between that only repeat the line the device would draw anyway.', <>
         {slider('Tolerance', simp.tolerance, v => setSimp({ tolerance: v }), { min: 0, max: 10, unit: ' units', lowHint: '0: only perfectly in-line points', highHint: '10: aggressive; flattens easing' })}
         {applyButton('Simplify', () => run('Simplify', (a, r) => simplify(a, r, simp)))}
+      </>)}
+
+      {card(Triangle, 'Straighten Strokes', 'Removes the short, slow "shoulders" either side of a top or bottom, which the Handy plays as a stall before each turn. Each rounded turn becomes one sharp one, timed at the middle of the old rounding so it stays on the beat.', <>
+        {slider('Straighten turns under', straight.size, v => setStraight({ size: v }), { min: 1, max: 25, unit: ' units', lowHint: 'Only tiny shoulders', highHint: 'Sharpens all but big easing' })}
+        <Hint>Small strokes and flat holds are never touched. Sharper turns are faster turns — follow with Fit to Handy if red marks appear.</Hint>
+        {applyButton('Straighten', () => run('Straighten Strokes', (a, r) => straighten(a, r, straight), { emptyMessage: 'No rounded turns under that size.' }))}
       </>)}
 
       {card(MoveVertical, 'Fit to Range', 'Stretches (or squeezes) the positions so the lowest point lands on Min and the highest on Max.', <>

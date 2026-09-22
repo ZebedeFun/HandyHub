@@ -442,6 +442,56 @@ export const driftFix = (actions, range, { windowSec = 8 } = {}) =>
   });
 
 // ---------------------------------------------------------------------------
+// Straighten strokes
+// ---------------------------------------------------------------------------
+
+// Removes "shoulders": the short, slow leg many scripts put either side of a
+// top or bottom (…→ 72, 82, 72 →…), which the Handy plays as a stall before
+// each turn. Neither Simplify nor wobble removal touches them — there is no
+// reversal, and a shoulder spends so long moving so little that it sits far
+// off the straight line. Each rounded turn becomes one point at the extreme,
+// timed at the middle of the old rounded section so the turn stays on the beat.
+//
+// Only points within `size` units of the extreme, and only inside one-way
+// runs: the turning points either side are never touched, so small strokes
+// and deliberate holds (flat runs) survive.
+function straightenPoints(pts, size) {
+  if (size <= 0 || pts.length < 3) return pts;
+  const t = turningIndices(pts);
+  const drop = new Set();
+  const moved = new Map(); // index -> new time
+
+  for (let k = 1; k + 1 < t.length; k++) {
+    const turn = t[k];
+    const ext = pts[turn].pos;
+    let first = turn;
+    while (first - 1 > t[k - 1] && Math.abs(pts[first - 1].pos - ext) < size) first--;
+    let last = turn;
+    while (last + 1 < t[k + 1] && Math.abs(pts[last + 1].pos - ext) < size) last++;
+    if (first === turn && last === turn) continue;
+
+    for (let i = first; i <= last; i++) if (i !== turn) drop.add(i);
+    moved.set(turn, Math.round((pts[first].at + pts[last].at) / 2));
+  }
+
+  if (moved.size === 0) return pts;
+  return pts
+    .map((a, i) => (moved.has(i) ? { at: moved.get(i), pos: a.pos } : a))
+    .filter((_, i) => !drop.has(i));
+}
+
+/**
+ * Turns rounded tops and bottoms into sharp ones (see straightenPoints).
+ * @param {number} opts.size - shoulders moving less than this many position
+ *   units into or out of a turn are removed.
+ */
+export const straighten = (actions, range, { size = 12 } = {}) =>
+  applyToRange(actions, range, pts => {
+    const out = straightenPoints(pts, size);
+    return out === pts ? null : out; // null: "nothing to change"
+  });
+
+// ---------------------------------------------------------------------------
 // Clean Up — the one-click chain
 // ---------------------------------------------------------------------------
 
@@ -483,18 +533,21 @@ function removeWobbles(pts, size) {
 }
 
 /**
- * One click: remove glitches, simplify, remove wobbles, optionally amplify,
- * then (optionally) fit to the Handy.
+ * One click: remove glitches, simplify, remove wobbles, straighten rounded
+ * turns, optionally amplify, then (optionally) fit to the Handy.
  * @param {number} opts.wobble - reversals smaller than this are removed (0 = off).
  * @param {number} opts.tolerance - simplify tolerance.
+ * @param {number} opts.shoulder - rounded turns under this are straightened (0 = off).
  * @param {number} opts.amplify - scale about 50 (1 = unchanged).
  * @param {boolean} opts.fitDevice - finish with Fit to Handy.
  */
-export const cleanUp = (actions, range, { wobble = 8, tolerance = 3, amplify = 1, fitDevice = true, spikeSpeed = DEVICE_MAX_UNITS_PER_SEC * 3 } = {}) =>
+export const cleanUp = (actions, range, { wobble = 8, tolerance = 3, shoulder = 0, amplify = 1, fitDevice = true, spikeSpeed = DEVICE_MAX_UNITS_PER_SEC * 3 } = {}) =>
   applyToRange(actions, range, (pts, lock) => {
     let p = removeSpikes(pts, spikeSpeed);
     p = simplifyPoints(p, { tolerance });
     if (wobble > 0) p = removeWobbles(p, wobble);
+    // After wobbles: a wobble at a peak would otherwise pass for the extreme.
+    if (shoulder > 0) p = straightenPoints(p, shoulder);
     if (amplify !== 1) {
       p = p.map((a, i) => ((i === 0 && lock.first) || (i === p.length - 1 && lock.last))
         ? a
