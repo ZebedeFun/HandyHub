@@ -8,6 +8,9 @@ const app = express();
 const port = process.env.PORT || 3001;
 const upload = multer({ storage: multer.memoryStorage() });
 
+// Mounted ahead of cors() on purpose: the Stash routes are same-origin only.
+app.use('/api/stash', require('./stash'));
+
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // Added urlencoded parsing just in case

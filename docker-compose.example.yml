@@ -14,9 +14,14 @@ services:
       # Persist settings across container rebuilds. Create this dir first:
       # mkdir -p ./data
       - ./data:/app/backend/data
+      # Optional: save fixed scripts back into a Stash library. Mount each
+      # library folder at the SAME path Stash's own container uses, and list
+      # those paths in STASH_MEDIA_ROOTS below.
+      # - /path/to/videos:/data
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - PORT=3001
+      # - STASH_MEDIA_ROOTS=/data
 
   # Optional: Kokoro TTS Container
   # Uncomment this block if you want to host Kokoro TTS locally alongside HandyTime.
