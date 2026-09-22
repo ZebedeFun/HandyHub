@@ -169,7 +169,7 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
         {slider('Remove wobbles under', clean.wobble, v => setClean(c => ({ ...c, wobble: v })), { min: 0, max: 20, unit: ' units', lowHint: '0: keep every reversal', highHint: '20: only clear strokes survive' })}
         {slider('Simplify tolerance', clean.tolerance, v => setClean(c => ({ ...c, tolerance: v })), { min: 0, max: 10, unit: ' units' })}
         {slider('Straighten turns under', clean.shoulder, v => setClean(c => ({ ...c, shoulder: v })), { min: 0, max: 25, unit: ' units', lowHint: '0: keep rounded turns', highHint: '25: sharpen all but big easing' })}
-        {slider('Amplify', clean.amplify, v => setClean(c => ({ ...c, amplify: v })), { min: 100, max: 200, step: 5, unit: '%', lowHint: '100%: heights unchanged', highHint: '200%: strokes doubled about the middle' })}
+        {slider('Amplify', clean.amplify, v => setClean(c => ({ ...c, amplify: v })), { min: 100, max: 200, step: 5, unit: '%', lowHint: '100%: heights unchanged', highHint: '200%: each stroke doubled about its own centre' })}
         <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
           <input type="checkbox" checked={clean.fitDevice} onChange={e => setClean(c => ({ ...c, fitDevice: e.target.checked }))} />
           Finish with Fit to Handy

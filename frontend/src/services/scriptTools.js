@@ -532,13 +532,44 @@ function removeWobbles(pts, size) {
   return pts.filter((_, i) => keep.has(i));
 }
 
+// Amplify: make every stroke taller about its OWN centre. Scaling about 50
+// shrank strokes that sit off-centre: 5 -> 30 at 200% came out 0 -> 10, the
+// bottom pinned at 0 while the top was pulled down towards it. With the centre
+// inside the stroke, clipping at 0/100 can cost part of the gain but a stroke
+// never comes out shorter than it went in.
+//
+// A turn's centre is the midpoint of the highest and lowest of it and the
+// turns either side — so a hold at the bottom (two turns at the same height)
+// still centres between the hold and the peaks. Points between turns take a
+// centre interpolated in time.
+function amplifyPoints(pts, factor, lock) {
+  const t = turningIndices(pts);
+  const centre = new Array(pts.length);
+  for (let k = 0; k < t.length; k++) {
+    const near = [t[k - 1], t[k], t[k + 1]].filter(i => i !== undefined).map(i => pts[i].pos);
+    centre[t[k]] = (Math.max(...near) + Math.min(...near)) / 2;
+  }
+  for (let k = 0; k + 1 < t.length; k++) {
+    const a = t[k];
+    const b = t[k + 1];
+    const span = pts[b].at - pts[a].at;
+    for (let i = a + 1; i < b; i++) {
+      const f = span > 0 ? (pts[i].at - pts[a].at) / span : 0;
+      centre[i] = centre[a] + (centre[b] - centre[a]) * f;
+    }
+  }
+  return pts.map((a, i) => ((i === 0 && lock.first) || (i === pts.length - 1 && lock.last))
+    ? a
+    : { at: a.at, pos: clampPos(Math.round(centre[i] + (a.pos - centre[i]) * factor)) });
+}
+
 /**
  * One click: remove glitches, simplify, remove wobbles, straighten rounded
  * turns, optionally amplify, then (optionally) fit to the Handy.
  * @param {number} opts.wobble - reversals smaller than this are removed (0 = off).
  * @param {number} opts.tolerance - simplify tolerance.
  * @param {number} opts.shoulder - rounded turns under this are straightened (0 = off).
- * @param {number} opts.amplify - scale about 50 (1 = unchanged).
+ * @param {number} opts.amplify - stroke height scale, about each stroke's own centre (1 = unchanged).
  * @param {boolean} opts.fitDevice - finish with Fit to Handy.
  */
 export const cleanUp = (actions, range, { wobble = 8, tolerance = 3, shoulder = 0, amplify = 1, fitDevice = true, spikeSpeed = DEVICE_MAX_UNITS_PER_SEC * 3 } = {}) =>
@@ -549,9 +580,7 @@ export const cleanUp = (actions, range, { wobble = 8, tolerance = 3, shoulder = 
     // After wobbles: a wobble at a peak would otherwise pass for the extreme.
     if (shoulder > 0) p = straightenPoints(p, shoulder);
     if (amplify !== 1) {
-      p = p.map((a, i) => ((i === 0 && lock.first) || (i === p.length - 1 && lock.last))
-        ? a
-        : { at: a.at, pos: clampPos(50 + (a.pos - 50) * amplify) });
+      p = amplifyPoints(p, amplify, lock);
       // Amplifying can flatten peaks into plateaus at 0/100; re-simplify.
       p = simplifyPoints(p, { tolerance: 0 });
     }
