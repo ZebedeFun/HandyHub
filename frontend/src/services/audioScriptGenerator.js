@@ -21,10 +21,18 @@ export const DEFAULT_AUDIO_PARAMS = {
   // 'flowing' re-reads the soundtrack every 50ms, so the pace never settles.
   // 'zoned' reads the soundtrack for a *section's* character, commits to it,
   // and holds it — see generateZonedScript for why.
-  structure: 'flowing', // 'flowing' | 'zoned'
+  // 'patterned' uses the same sections as 'zoned' but plays a repeating stroke
+  // pattern in each — see generatePatternedScript.
+  structure: 'flowing', // 'flowing' | 'zoned' | 'patterned'
   zoneLengthSec: 16,    // target length of one held section
   rampStrokes: 5,       // full strokes spent gliding between sections
   depthVariation: 60,   // how much stroke depth varies between sections
+
+  // Patterned only.
+  patternPick: 'match', // 'match' (pattern suits the section's feel) | 'shuffle'
+  patternSeed: 1,       // bump to re-roll which pattern each section gets
+  minStrokeLength: 20,  // % of the stroke zone — a pattern's shortest stroke
+  maxStrokeLength: 100, // % of the stroke zone — a pattern's longest stroke
 };
 
 // Stroke duration in ms for a 0-100 "speed" (100% = 150ms, 0% = 2000ms).
@@ -98,6 +106,7 @@ export function generateAudioScript(envelope, params = {}, fps = AUDIO_FPS) {
 
   const merged = { ...DEFAULT_AUDIO_PARAMS, ...params };
   if (merged.structure === 'zoned') return generateZonedScript(envelope, merged, fps);
+  if (merged.structure === 'patterned') return generatePatternedScript(envelope, merged, fps);
 
   const {
     audioType, minHeight, maxHeight, minSpeed, maxSpeed, smoothing, sensitivity,
@@ -354,4 +363,186 @@ export function generateZonedScript(envelope, params, fps = AUDIO_FPS) {
   }
 
   return actions.length > 0 ? { actions } : null;
+}
+
+// ---------------------------------------------------------------------------
+// Patterned structure
+// ---------------------------------------------------------------------------
+//
+// Same sections as 'zoned' — a new one starts when the track's intensity
+// changes — but instead of one steady stroke per section, each section loops a
+// stroke *pattern*: long-long-short-short, tip teasing, flicks and so on. The
+// section's loudness still sets the pace; its punchiness picks the pattern.
+//
+// Speed here is sleeve speed, not stroke duration: the When Quiet/When Loud
+// sliders set how long a *full-zone* stroke would take (the same 150ms-2s scale
+// as the other structures), and a pattern's short strokes travel at that same
+// speed, so they are quicker rather than a crawl.
+
+// One pattern = a list of cycles, each a down-then-up stroke.
+//   len    0-1, mapped into the user's Min-Max Length window
+//   at     where the stroke sits in the zone: 'top' | 'mid' | 'bottom'
+//   down/up speed multipliers for each half (slow pull, fast push...)
+// punch 0-1 is how percussive the pattern feels; 'match' pairs it with the
+// section's crest (peakiness) so punchy music gets punchy patterns.
+const FULL = { len: 1, at: 'mid', down: 1, up: 1 };
+const cyc = (len, at = 'mid', down = 1, up = 1) => ({ len, at, down, up });
+export const STROKE_PATTERNS = [
+  { name: 'Full strokes',          punch: 0.1,  cycles: [FULL] },
+  { name: 'Slow pull, fast push',  punch: 0.3,  cycles: [cyc(1, 'mid', 0.6, 1.5)] },
+  { name: 'Build-up',              punch: 0.35, cycles: [cyc(0.25), cyc(0.5), cyc(0.75), FULL] },
+  { name: 'Tip teasing',           punch: 0.45, cycles: [cyc(0.2, 'top'), cyc(0.2, 'top'), cyc(0.2, 'top'), FULL] },
+  { name: 'Base grind',            punch: 0.5,  cycles: [cyc(0.2, 'bottom'), cyc(0.2, 'bottom'), cyc(0.2, 'bottom'), FULL] },
+  { name: 'Long-long-short-short', punch: 0.6,  cycles: [FULL, FULL, cyc(0.3, 'top'), cyc(0.3, 'top')] },
+  { name: 'Double tap',            punch: 0.8,  cycles: [FULL, cyc(0.3, 'bottom', 1.2, 1.2), cyc(0.3, 'bottom', 1.2, 1.2)] },
+  { name: 'Flicks',                punch: 0.95, cycles: [cyc(0.15, 'top', 1.2, 1.2)] },
+];
+
+// Fastest the generator will ask for: 5 full cycles a second, as the procedural
+// generator enforces.
+const PATTERN_MIN_GAP_MS = 100;
+
+// Small seeded PRNG so a given seed always yields the same script — retuning a
+// slider should not also re-roll every pattern.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pickPattern(rand, crest, pick, prevIndex) {
+  const weights = STROKE_PATTERNS.map((p, i) => {
+    if (i === prevIndex) return 0; // never the same pattern twice running
+    if (pick === 'shuffle') return 1;
+    return Math.exp(-((p.punch - crest) ** 2) / 0.06);
+  });
+  const total = weights.reduce((a, b) => a + b, 0);
+  let r = rand() * total;
+  for (let i = 0; i < weights.length; i++) {
+    r -= weights[i];
+    if (r <= 0 && weights[i] > 0) return i;
+  }
+  return weights.findIndex(w => w > 0);
+}
+
+export function generatePatternedScript(envelope, params, fps = AUDIO_FPS) {
+  const {
+    minHeight, maxHeight, minSpeed, maxSpeed, sensitivity,
+    zoneLengthSec, rampStrokes, patternPick, patternSeed,
+    minStrokeLength, maxStrokeLength,
+  } = { ...DEFAULT_AUDIO_PARAMS, ...params };
+
+  if (!envelope || envelope.length === 0) return null;
+
+  const [safeMin, safeMax] = safeRange(minHeight, maxHeight);
+  const fullRange = safeMax - safeMin;
+  const lenLo = Math.min(minStrokeLength, maxStrokeLength) / 100;
+  const lenHi = Math.max(minStrokeLength, maxStrokeLength) / 100;
+
+  const level = smoothLevel(envelope, Math.max(2, Math.round(fps)));
+  const zones = segmentZones(level, fps, Math.max(2, zoneLengthSec));
+
+  const sections = zones.map(([a, b]) => {
+    let sum = 0;
+    let peak = 0;
+    for (let i = a; i <= b; i++) {
+      sum += level[i];
+      if (envelope[i] > peak) peak = envelope[i];
+    }
+    const mean = sum / (b - a + 1);
+    return {
+      mean,
+      crest: peak > 0 ? Math.min(1, Math.max(0, (peak - mean) / peak)) : 0,
+      endMs: ((b + 1) / fps) * 1000,
+    };
+  });
+
+  const spread = (values) => {
+    const lo = Math.min(...values);
+    const span = Math.max(...values) - lo;
+    return (v) => (span > 1e-6 ? (v - lo) / span : 0.5);
+  };
+  const loudNorm = spread(sections.map(r => r.mean));
+  const crestNorm = spread(sections.map(r => r.crest));
+  const gamma = Math.pow(10, (50 - sensitivity) / 50);
+
+  const rand = mulberry32(patternSeed * 2654435761 + envelope.length);
+  let prevIndex = -1;
+  const plan = sections.map((r) => {
+    const intensity = Math.pow(loudNorm(r.mean), gamma);
+    // Sleeve speed in position-units per ms, from the full-stroke duration.
+    const speed = fullRange / halfPeriodForSpeed(minSpeed + intensity * (maxSpeed - minSpeed));
+    const patternIndex = pickPattern(rand, crestNorm(r.crest), patternPick, prevIndex);
+    prevIndex = patternIndex;
+    return { speed, pattern: STROKE_PATTERNS[patternIndex], endMs: r.endMs };
+  });
+
+  // A cycle's stroke window. 'top' and 'bottom' anchor to the ends of a
+  // Max-Length-sized span centred in the zone, not to the zone itself — so
+  // even the move between a top-anchored stroke and a bottom-anchored one is
+  // never longer than Max Length.
+  const mid = safeMin + fullRange / 2;
+  const reachHi = mid + (fullRange * lenHi) / 2;
+  const reachLo = mid - (fullRange * lenHi) / 2;
+  const minMove = fullRange * lenLo;
+  const windowFor = (c) => {
+    const amp = fullRange * (lenLo + (lenHi - lenLo) * c.len);
+    if (c.at === 'top') return [reachHi - amp, reachHi];
+    if (c.at === 'bottom') return [reachLo, reachLo + amp];
+    return [mid - amp / 2, mid + amp / 2];
+  };
+
+  // Points in order; each move's time comes from its distance and speed. A
+  // point that carries on in the same direction as the last move (a top-
+  // anchored stroke after a bottom-anchored one) merges into it.
+  const points = [{ at: 0, pos: Math.round(reachHi) }];
+  const pushPoint = (pos, speedPerMs) => {
+    pos = Math.round(Math.max(safeMin, Math.min(safeMax, pos)));
+    let last = points[points.length - 1];
+    const before = points[points.length - 2];
+    if (before && Math.sign(pos - last.pos) === Math.sign(last.pos - before.pos)) {
+      points.pop();
+      last = before;
+    }
+    if (pos === last.pos) return;
+    // Where two differently placed strokes meet, the hand-over can be a tiny
+    // reversal (up to 36, back down to 30, up to 70). Skip it; the next point
+    // then merges and the move simply carries on through.
+    if (before && Math.sign(pos - last.pos) !== Math.sign(last.pos - before.pos)
+        && Math.abs(pos - last.pos) < minMove - 1) return;
+    const gap = Math.max(PATTERN_MIN_GAP_MS, Math.abs(pos - last.pos) / speedPerMs);
+    points.push({ at: last.at + gap, pos });
+  };
+
+  const rampCycles = Math.max(1, Math.round(rampStrokes));
+  const totalMs = (envelope.length / fps) * 1000;
+  let prevSpeed = null;
+  for (const section of plan) {
+    let n = 0;
+    while (points[points.length - 1].at < section.endMs) {
+      // Glide the pace geometrically out of the previous section; the pattern
+      // itself switches at the boundary, which is the point of the structure.
+      const k = prevSpeed ? Math.min(1, n / rampCycles) : 1;
+      const speed = prevSpeed ? prevSpeed * Math.pow(section.speed / prevSpeed, k) : section.speed;
+      const c = section.pattern.cycles[n % section.pattern.cycles.length];
+      const [bottom, top] = windowFor(c);
+      const lastAt = points[points.length - 1].at;
+      pushPoint(bottom, speed * c.down);
+      pushPoint(top, speed * c.up);
+      n++;
+      // A cycle that added no time (it merged away entirely) must not stall.
+      if (points[points.length - 1].at <= lastAt && n > section.pattern.cycles.length) break;
+    }
+    prevSpeed = section.speed;
+  }
+
+  const actions = points
+    .filter(p => p.at <= totalMs)
+    .map(p => ({ at: Math.round(p.at), pos: p.pos }));
+  return actions.length > 1 ? { actions, sections: plan.map(p => ({ endMs: p.endMs, pattern: p.pattern.name })) } : null;
 }

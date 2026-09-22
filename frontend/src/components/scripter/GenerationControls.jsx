@@ -1,6 +1,6 @@
 import React from 'react';
 import { describeSpeedBracket } from '../../services/scriptGenerator';
-import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
+import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight, Shuffle, Dices } from 'lucide-react';
 
 // 1500 -> "+1.5s", -40 -> "-40ms". Past a second the ms count stops being
 // readable at a glance.
@@ -37,7 +37,7 @@ function SpeedBracketReadout({ params }) {
   );
 }
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount, patternPlan }) {
   // A video that is out by seconds would take dozens of clicks on the nudge
   // buttons, so a typed amount sits under them.
   const [shiftAmount, setShiftAmount] = React.useState('1');
@@ -48,6 +48,9 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
   const isAudio = mode === 'audio';
   const isTap = mode === 'tap';
   const isZoned = audioParams?.structure === 'zoned';
+  const isPatterned = audioParams?.structure === 'patterned';
+  // Both split the track into sections; Flowing does not.
+  const isSectioned = isZoned || isPatterned;
 
   // Audio mode needs a soundtrack to read; without a video there is nothing to
   // generate from.
@@ -60,6 +63,8 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
     if (name === 'maxHeight' && next.maxHeight < next.minHeight) next.minHeight = next.maxHeight;
     if (name === 'minSpeed' && next.minSpeed > next.maxSpeed) next.maxSpeed = next.minSpeed;
     if (name === 'maxSpeed' && next.maxSpeed < next.minSpeed) next.minSpeed = next.maxSpeed;
+    if (name === 'minStrokeLength' && next.minStrokeLength > next.maxStrokeLength) next.maxStrokeLength = next.minStrokeLength;
+    if (name === 'maxStrokeLength' && next.maxStrokeLength < next.minStrokeLength) next.minStrokeLength = next.maxStrokeLength;
     return next;
   });
 
@@ -555,7 +560,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                   type="button"
                   onClick={() => handleAudioChange('structure', 'flowing')}
                   className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center justify-center gap-1.5 ${
-                    !isZoned
+                    !isSectioned
                       ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
                       : 'text-gray-500 dark:text-gray-400'
                   }`}
@@ -573,15 +578,109 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 >
                   <LayoutGrid size={13} /> Zoned
                 </button>
+                <button
+                  type="button"
+                  onClick={() => handleAudioChange('structure', 'patterned')}
+                  className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center justify-center gap-1.5 ${
+                    isPatterned
+                      ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
+                  <Shuffle size={13} /> Patterned
+                </button>
               </div>
               <Hint>
                 <b>Flowing</b> re-reads the sound every 50ms, so the pace never settles. <b>Zoned</b> reads
                 each section of the track for its character, commits to a tempo and depth, and holds them
-                steady before gliding to the next — the shape hand-made scripts have.
+                steady before gliding to the next — the shape hand-made scripts have. <b>Patterned</b> uses
+                the same sections but loops a stroke pattern in each — long-long-short-short, tip teasing,
+                flicks, double taps — switching pattern whenever the track changes.
               </Hint>
             </div>
 
-            {isZoned && (
+            {isPatterned && (
+              <div>
+                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Pattern Choice</label>
+                <div className="flex gap-2">
+                  <div className="flex flex-1 bg-gray-200 dark:bg-gray-700 p-1 rounded-lg">
+                    {[['match', 'Match the music'], ['shuffle', 'Shuffle']].map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => handleAudioChange('patternPick', value)}
+                        className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                          audioParams.patternPick === value
+                            ? 'bg-white dark:bg-gray-600 shadow-sm text-indigo-600 dark:text-indigo-300'
+                            : 'text-gray-500 dark:text-gray-400'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleAudioChange('patternSeed', (audioParams.patternSeed || 1) + 1)}
+                    title="Re-roll which pattern each section gets, then Generate again"
+                    className="px-2.5 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-300 text-xs font-medium flex items-center gap-1"
+                  >
+                    <Dices size={14} /> Re-roll
+                  </button>
+                </div>
+                <Hint>
+                  <b>Match</b> gives punchy passages punchy patterns (flicks, double taps) and smooth ones
+                  flowing patterns (full strokes, slow pull / fast push). <b>Shuffle</b> ignores the music's
+                  feel. Either way a pattern never repeats back to back, and the same settings always give
+                  the same script until you Re-roll.
+                </Hint>
+                {patternPlan && patternPlan.length > 0 && (
+                  <details className="mt-2 text-[10px] text-gray-600 dark:text-gray-400">
+                    <summary className="cursor-pointer font-medium">Last generate: {patternPlan.length} sections</summary>
+                    <ol className="mt-1 space-y-0.5 font-mono">
+                      {patternPlan.map((sec, i) => {
+                        const startMs = i === 0 ? 0 : patternPlan[i - 1].endMs;
+                        const fmt = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
+                        return <li key={i}>{fmt(startMs)}–{fmt(sec.endMs)} {sec.pattern}</li>;
+                      })}
+                    </ol>
+                  </details>
+                )}
+              </div>
+            )}
+
+            {isPatterned && (
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <div className="flex justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Min Length</label>
+                    <span className="text-[10px] font-mono text-purple-500">{audioParams.minStrokeLength}%</span>
+                  </div>
+                  <input
+                    type="range" min="5" max="100"
+                    value={audioParams.minStrokeLength}
+                    onChange={(e) => handleAudioChange('minStrokeLength', parseInt(e.target.value, 10))}
+                    className="w-full accent-purple-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <Hint low="5%: tiny flicks" high="Patterns' short strokes grow" />
+                </div>
+                <div className="flex-1">
+                  <div className="flex justify-between mb-1">
+                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Max Length</label>
+                    <span className="text-[10px] font-mono text-purple-500">{audioParams.maxStrokeLength}%</span>
+                  </div>
+                  <input
+                    type="range" min="5" max="100"
+                    value={audioParams.maxStrokeLength}
+                    onChange={(e) => handleAudioChange('maxStrokeLength', parseInt(e.target.value, 10))}
+                    className="w-full accent-purple-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <Hint low="Caps the long strokes" high="100%: full zone" />
+                </div>
+              </div>
+            )}
+
+            {isSectioned && (
               <>
                 <div>
                   <div className="flex justify-between mb-1">
@@ -600,6 +699,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                   </Hint>
                 </div>
 
+                {isZoned && (
                 <div>
                   <div className="flex justify-between mb-1">
                     <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Depth Variation</label>
@@ -616,6 +716,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                     by how loud — so depth and speed vary independently.
                   </Hint>
                 </div>
+                )}
 
                 <div>
                   <div className="flex justify-between mb-1">
@@ -635,7 +736,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
               </>
             )}
 
-            {!isZoned && (
+            {!isSectioned && (
             <div>
               <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Audio Type</label>
               <div className="flex bg-gray-200 dark:bg-gray-700 p-1 rounded-lg">
@@ -743,7 +844,9 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
 
             <div className="pt-2 border-t border-gray-200 dark:border-gray-700/50">
               <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
-                {isZoned
+                {isPatterned
+                  ? 'Patterned mode fits every pattern inside these bounds; Min/Max Length above are a % of this zone.'
+                  : isZoned
                   ? 'Zoned mode moves a stroke window around inside these bounds — each section gets its own depth and its own height within them.'
                   : 'Audio mode always plays complete up/down strokes and guarantees at least a 50% range, so a narrow zone here is widened rather than reduced to a twitch.'}
               </p>
@@ -787,7 +890,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
 
             <div className="pt-2 border-t border-gray-200 dark:border-gray-700/50">
               <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
-                Volume maps to stroke duration: 100% is a 150ms stroke, 0% a 2s one. Generating drops the
+                Volume maps to stroke duration: 100% is a 150ms stroke, 0% a 2s one.{isPatterned && ' In Patterned mode that is the time for a full-zone stroke — shorter pattern strokes move at the same sleeve speed, so they come round quicker.'} Generating drops the
                 result into the history below, so the heatmap tools, undo and Download all apply.
               </p>
             </div>

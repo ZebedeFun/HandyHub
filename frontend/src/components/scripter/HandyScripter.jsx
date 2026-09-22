@@ -189,6 +189,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const [genMode, setGenMode] = useState('procedural'); // 'procedural' | 'audio'
   const [audioParams, setAudioParams] = useState(DEFAULT_AUDIO_PARAMS);
   const [isAnalyzingAudio, setIsAnalyzingAudio] = useState(false);
+  // Which pattern each section got on the last Patterned generate, for the panel.
+  const [patternPlan, setPatternPlan] = useState(null);
 
   // Decoding a feature-length soundtrack is slow, and the envelope depends only
   // on the file — so it is kept and reused while you retune the audio sliders,
@@ -331,7 +333,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
         alert("No audio could be read from this video.");
         return;
       }
-      commitFunscript(script, null, { freshTiming: true });
+      setPatternPlan(script.sections || null);
+      commitFunscript({ actions: script.actions }, null, { freshTiming: true });
     } catch (err) {
       console.error("Audio analysis failed:", err);
       alert("Could not extract audio from this video. Ensure it contains an audio track.");
@@ -624,6 +627,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               mode={genMode}
               setMode={setGenMode}
               audioParams={audioParams}
+              patternPlan={patternPlan}
               setAudioParams={setAudioParams}
               isAnalyzingAudio={isAnalyzingAudio}
               hasVideo={!!videoUrl}
