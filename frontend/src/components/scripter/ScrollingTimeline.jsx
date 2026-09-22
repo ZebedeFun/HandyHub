@@ -114,7 +114,7 @@ export default function ScrollingTimeline({
   // paints. Re-rendering for them would mean a React pass per mouse movement.
   const hoverRef = useRef(null);   // { index, at, pos } — index -1 over empty space
   const dragRef = useRef(null);    // { index, at, pos, startX, startY, moved }
-  const scrubRef = useRef(null);   // { startX, startTime, moved }
+  const scrubRef = useRef(null);   // { startX, startTime, moved, timeMs }
   const marqueeRef = useRef(null); // { startAt, endAt }
 
   // The time the last frame was painted for. Pointer coordinates are converted
@@ -354,13 +354,24 @@ export default function ScrollingTimeline({
   // Repaint using whatever time is current, without waiting for React. The
   // pointer handlers call this so hovering and dragging stay smooth while the
   // video is paused and no animation frame is running.
+  //
+  // Mid-scrub the bar paints the time being dragged to, not the video's. Each
+  // pointer move starts a fresh seek that cancels the last, so the video (and
+  // its timeupdate) only settles once the drag stops — following it froze the
+  // bar until release.
+  const liveTimeMs = () => {
+    const scrubTime = scrubRef.current?.timeMs;
+    if (scrubTime != null) return scrubTime;
+    return videoRef?.current ? videoRef.current.currentTime * 1000 : currentTimeMs;
+  };
+
   const redraw = () => {
-    draw(videoRef?.current ? videoRef.current.currentTime * 1000 : currentTimeMs);
+    draw(liveTimeMs());
   };
 
   const animate = () => {
     if (videoRef && videoRef.current) {
-      draw(videoRef.current.currentTime * 1000);
+      draw(liveTimeMs());
     }
     if (isPlaying) {
       requestRef.current = requestAnimationFrame(animate);
@@ -437,10 +448,13 @@ export default function ScrollingTimeline({
     return best;
   };
 
+  // Returns the time actually sought to (clamped to the video), or null.
   const seekTo = (timeMs) => {
     const video = videoRef?.current;
-    if (!video || !video.duration) return;
-    video.currentTime = Math.max(0, Math.min(video.duration, timeMs / 1000));
+    if (!video || !video.duration) return null;
+    const clampedMs = Math.max(0, Math.min(video.duration * 1000, timeMs));
+    video.currentTime = clampedMs / 1000;
+    return clampedMs;
   };
 
   const handlePointerDown = (e) => {
@@ -508,7 +522,11 @@ export default function ScrollingTimeline({
       if (scrub.moved) {
         // Anchored to where the press landed, so the bar does not chase the
         // pointer as the window re-centres on the new time.
-        seekTo(scrub.startTime - (dx / rect.width) * windowMs);
+        const sought = seekTo(scrub.startTime - (dx / rect.width) * windowMs);
+        if (sought != null) {
+          scrub.timeMs = sought;
+          redraw();
+        }
       }
       return;
     }
