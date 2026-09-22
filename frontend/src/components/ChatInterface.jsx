@@ -139,6 +139,12 @@ function createSSEParser() {
 }
 
 // Pulls the incremental text out of one OpenAI-style SSE payload.
+// The server's { error } message for a failed request, or at least its status.
+async function responseError(res) {
+  const body = await res.json().catch(() => null);
+  return body?.error || `Request failed (${res.status})`;
+}
+
 function deltaFromPayload(payload) {
   try {
     return JSON.parse(payload).choices[0]?.delta?.content || '';
@@ -321,6 +327,7 @@ export default function ChatInterface({ settings }) {
           }),
         });
 
+        if (!res.ok) throw new Error(await responseError(res));
         if (!res.body) throw new Error('No response body');
 
         const reader = res.body.getReader();
@@ -345,6 +352,7 @@ export default function ChatInterface({ settings }) {
         }
     } catch (err) {
        console.error("Generate error", err);
+       alert(`Couldn't generate the persona.\n\n${err.message || err}`);
     } finally {
        setIsGeneratingPersona(false);
     }
@@ -1054,6 +1062,7 @@ export default function ChatInterface({ settings }) {
             signal: abortController.signal
         });
 
+        if (!response.ok) throw new Error(await responseError(response));
         if (!response.body) throw new Error('No response body');
 
         const reader = response.body.getReader();
@@ -1202,7 +1211,13 @@ export default function ChatInterface({ settings }) {
         
     } catch (err) {
         // An abort is a deliberate interruption (STOP / Climax), not a failure.
-        if (err.name !== 'AbortError') console.error("Chat Error:", err);
+        // Anything else goes in the reply bubble: failing silently left an
+        // empty bubble and no clue that, say, the API key had been rejected.
+        if (err.name !== 'AbortError') {
+            console.error("Chat Error:", err);
+            const text = `⚠️ ${err.message || err}`;
+            setMessages(prev => prev.map((m, i) => (i === msgIdx ? { ...m, text } : m)));
+        }
     } finally {
         // Only release the lock if a newer scene has not already taken over.
         if (streamAbortRef.current === abortController) {

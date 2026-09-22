@@ -12,6 +12,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true })); // Added urlencoded parsing just in case
 
+// The site sits behind nginx Basic Auth. Any 401 that reaches the browser reads
+// as "your site login is wrong": it throws the saved login away and prompts
+// again on the next request, even when the 401 was the LLM provider rejecting
+// its API key. So a provider's 401/403 goes out as a 502, with the real
+// status kept in the message.
+const upstreamFailureStatus = (status) => (status === 401 || status === 403 ? 502 : status);
+
 // Health check route
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok' });
@@ -88,7 +95,8 @@ app.post('/api/chat', async (req, res) => {
 
         if (!response.ok) {
             const errText = await response.text();
-            return res.status(response.status).json({ error: errText });
+            return res.status(upstreamFailureStatus(response.status))
+                .json({ error: `LLM provider returned ${response.status}: ${errText.slice(0, 500)}` });
         }
 
         res.setHeader('Content-Type', 'text/event-stream');
@@ -167,7 +175,8 @@ Example Output: {"action":"adjust", "speed": ${Math.min(100, currentSpeed + 20)}
 
         if (!response.ok) {
             const errText = await response.text();
-            return res.status(response.status).json({ error: errText });
+            return res.status(upstreamFailureStatus(response.status))
+                .json({ error: `LLM provider returned ${response.status}: ${errText.slice(0, 500)}` });
         }
 
         const data = await response.json();
@@ -283,7 +292,7 @@ app.post('/api/tts', async (req, res) => {
             // Pass Kokoro's own message through: a generic 500 makes a bad URL,
             // an unknown voice and a dead container all look identical.
             const errText = await response.text().catch(() => '');
-            return res.status(response.status).json({
+            return res.status(upstreamFailureStatus(response.status)).json({
                 error: (errText || `Kokoro TTS error ${response.status}`).slice(0, 500)
             });
         }
