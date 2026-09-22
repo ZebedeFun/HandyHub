@@ -1,4 +1,5 @@
 import React from 'react';
+import { describeSpeedBracket } from '../../services/scriptGenerator';
 import { Settings, Play, Download, Activity, Sliders, Timer, Zap, Wand2, Undo2, Redo2, ChevronDown, ChevronUp, Music, Volume2, Loader2, LayoutGrid, Waves, Hand, Square, Circle, ChevronsLeft, ChevronLeft, ChevronRight, ChevronsRight } from 'lucide-react';
 
 // 1500 -> "+1.5s", -40 -> "-40ms". Past a second the ms count stops being
@@ -7,6 +8,33 @@ function formatShift(ms, signed = true) {
   const sign = signed && ms > 0 ? '+' : '';
   if (Math.abs(ms) >= 1000) return `${sign}${+(ms / 1000).toFixed(3)}s`;
   return `${sign}${ms}ms`;
+}
+
+// Tempo, speed and length are one equation (speed = length x tempo), so the
+// sliders cannot all be honoured at once. This spells out, for the current
+// settings, which stroke lengths the speed limits will bend and which way.
+function SpeedBracketReadout({ params }) {
+  const { tooFastAbovePct, tooSlowBelowPct } = describeSpeedBracket(params);
+  const { minStrokeLength: minLen, maxStrokeLength: maxLen, minSpeed } = params;
+  const fast = Math.round(tooFastAbovePct);
+  const slow = Math.round(tooSlowBelowPct);
+
+  const lines = [];
+  if (fast < minLen) lines.push(`Every stroke is too long to keep ${params.strokesPerMin}/min — Max Speed sets the pace, not Tempo.`);
+  else if (fast < maxLen) lines.push(`Strokes over ${fast}% slow down below ${params.strokesPerMin}/min to stay under Max Speed.`);
+  if (minSpeed > 0) {
+    if (slow > maxLen) lines.push(`Even a ${maxLen}% stroke is too slow at this tempo — strokes go full Max Length and the tempo quickens.`);
+    else if (slow > minLen) lines.push(`Strokes under ${slow}% are lengthened to keep above Min Speed.`);
+  }
+  if (lines.length === 0) lines.push(`Every length from ${minLen}% to ${maxLen}% fits at ${params.strokesPerMin}/min — Tempo is in charge.`);
+
+  return (
+    <div className="-mt-2 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800/40 px-2.5 py-1.5 space-y-0.5">
+      {lines.map(line => (
+        <p key={line} className="text-[10px] text-blue-700 dark:text-blue-300 leading-tight">{line}</p>
+      ))}
+    </div>
+  );
 }
 
 export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount }) {
@@ -48,6 +76,10 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
     // Ensure minStrokeLength <= maxStrokeLength
     if (name === 'minStrokeLength' && parsedValue > params.maxStrokeLength) parsedValue = params.maxStrokeLength;
     if (name === 'maxStrokeLength' && parsedValue < params.minStrokeLength) parsedValue = params.minStrokeLength;
+
+    // Ensure minSpeed <= maxSpeed (0 = no floor, so it never pushes the ceiling)
+    if (name === 'minSpeed' && parsedValue > params.maxSpeed) parsedValue = params.maxSpeed;
+    if (name === 'maxSpeed' && parsedValue < params.minSpeed) parsedValue = params.minSpeed;
 
     setParams(prev => ({
       ...prev,
@@ -376,27 +408,38 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 value={params.strokesPerMin} onChange={handleChange}
                 className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
               />
-              <Hint low="30/min: long, slow strokes" high="400/min: rapid pumping">
-                Direction changes per minute. Sets the rhythm on its own, so changing stroke length no longer
-                changes the pace.
+              <Hint low="30/min: an unhurried pace" high="400/min: rapid pumping">
+                Direction changes per minute — the rhythm to aim for. The speed limits below can bend it.
               </Hint>
             </div>
 
-            <div>
-              <div className="flex justify-between mb-1">
-                <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Max Speed Limit</label>
-                <span className="text-xs font-mono text-blue-500">{params.baseSpeed}</span>
+            <div className="flex gap-4">
+              <div className="flex-1">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Min Speed</label>
+                  <span className="text-[10px] font-mono text-blue-500">{params.minSpeed > 0 ? params.minSpeed : 'Off'}</span>
+                </div>
+                <input
+                  type="range" min="0" max="10" name="minSpeed"
+                  value={params.minSpeed} onChange={handleChange}
+                  className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <Hint low="Off: slow teasing strokes allowed" high="Stops strokes crawling" />
               </div>
-              <input
-                type="range" min="1" max="10" name="baseSpeed"
-                value={params.baseSpeed} onChange={handleChange}
-                className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-              />
-              <Hint low="1: gentle; long strokes stretch out" high="10: full device speed">
-                A ceiling on carriage speed, not the pace itself. If a long stroke cannot be finished in time,
-                the tempo eases off to respect it.
-              </Hint>
+              <div className="flex-1">
+                <div className="flex justify-between mb-1">
+                  <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Max Speed</label>
+                  <span className="text-[10px] font-mono text-blue-500">{params.maxSpeed}</span>
+                </div>
+                <input
+                  type="range" min="1" max="10" name="maxSpeed"
+                  value={params.maxSpeed} onChange={handleChange}
+                  className="w-full accent-blue-500 h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                />
+                <Hint low="1: gentle" high="10: full device speed" />
+              </div>
             </div>
+            <SpeedBracketReadout params={params} />
 
             <div className="flex gap-4">
               <div className="flex-1">
@@ -424,6 +467,10 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
                 <Hint low="Caps how long a stroke may get" high="100%: full-range strokes allowed" />
               </div>
             </div>
+            <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight -mt-2">
+              Lengths are a % of the stroke zone set under Limits &amp; Zones, not of the whole device — with the
+              zone at 20–80, 50% is 30 units of travel.
+            </p>
 
             <div>
               <div className="flex justify-between mb-1">

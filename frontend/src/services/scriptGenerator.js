@@ -6,18 +6,45 @@ export const MAX_CYCLES_PER_SEC = 5;
 export const MIN_GAP_MS = 1000 / (MAX_CYCLES_PER_SEC * 2);
 const MAX_GAP_MS = 4000;
 
-// Linear carriage speed ceiling in position-units per second, indexed by the
-// baseSpeed slider (1-10). This is the device limit, and it is now only a
-// *cap* — tempo is set independently by strokesPerMin.
+// Linear carriage speed in position-units per second, indexed by the Min/Max
+// Speed sliders (1-10). Speed is a bracket around the tempo, not the tempo
+// itself: speed = stroke length x tempo, so only two of the three are free.
 const MIN_LINEAR_SPEED = 40;
 const MAX_LINEAR_SPEED = 400;
+
+// 1-10 slider -> units/sec. 0 is only meaningful for minSpeed, where it means
+// "no floor".
+export function linearSpeedForLevel(level) {
+  if (!level || level <= 0) return 0;
+  return MIN_LINEAR_SPEED + ((level - 1) / 9) * (MAX_LINEAR_SPEED - MIN_LINEAR_SPEED);
+}
+
+/**
+ * Where the speed bracket takes over from the tempo, as % of the stroke zone —
+ * the same unit as Min/Max Length, so the UI can say which lengths will be
+ * bent. Ignores randomness, so it describes the steady-state case.
+ * @returns {{tooFastAbovePct: number, tooSlowBelowPct: number}} a stroke longer
+ *   than tooFastAbovePct is slowed below the tempo by Max Speed; one shorter
+ *   than tooSlowBelowPct is lengthened (or quickened) by Min Speed. Values
+ *   outside 0-100 mean that side never binds.
+ */
+export function describeSpeedBracket({ strokesPerMin, minSpeed = 0, maxSpeed = 10, minStroke = 0, maxStroke = 100 }) {
+  const range = Math.max(1, maxStroke - minStroke);
+  const gapSec = Math.max(MIN_GAP_MS, Math.min(MAX_GAP_MS, 60000 / Math.max(1, strokesPerMin))) / 1000;
+  return {
+    tooFastAbovePct: (linearSpeedForLevel(maxSpeed) * gapSec / range) * 100,
+    tooSlowBelowPct: (linearSpeedForLevel(minSpeed) * gapSec / range) * 100,
+  };
+}
 
 /**
  * Generates a procedural funscript based on parameters.
  * @param {number} durationMs - The duration of the video in milliseconds.
  * @param {object} params - The generation parameters.
  * @param {number} params.strokesPerMin - Tempo: direction changes per minute. Sets the rhythm.
- * @param {number} params.baseSpeed - Linear speed cap (1 to 10). Limits how fast long strokes may travel.
+ * @param {number} params.maxSpeed - Linear speed ceiling (1 to 10). Long strokes that would beat it are slowed, pulling the tempo down.
+ * @param {number} params.minSpeed - Linear speed floor (0 = off, 1 to 10). Short strokes that would crawl are lengthened (up to
+ *   Max Length), and only if that is not enough is the tempo quickened. Not applied during the cooldown, whose job is to slow down.
  * @param {number} params.randomness - Randomness factor (0 to 10), higher means less steady rhythm.
  * @param {number} params.minStroke - Minimum position (0 to 100).
  * @param {number} params.maxStroke - Maximum position (0 to 100).
@@ -25,7 +52,8 @@ const MAX_LINEAR_SPEED = 400;
  */
 export function generateProceduralScript(durationMs, params) {
   const {
-    baseSpeed = 5,
+    maxSpeed = 5,
+    minSpeed = 0,
     strokesPerMin = 200,
     randomness = 5,
     minStroke = 0,
@@ -38,6 +66,12 @@ export function generateProceduralScript(durationMs, params) {
     cooldownSec = 0,
     startPos
   } = params;
+
+  // Keep the bracket the right way round even if a caller passes it inverted.
+  const speedFloorLevel = Math.min(minSpeed, maxSpeed);
+  const minSpeedVals = linearSpeedForLevel(speedFloorLevel);
+  // Block-to-block speed variation (Build, Random Phases) stays inside the bracket.
+  const lowSpeedLevel = Math.max(1, speedFloorLevel);
 
   const actions = [];
   let currentTime = 0;
@@ -77,7 +111,7 @@ export function generateProceduralScript(durationMs, params) {
       prevBlockTempo = targetBlockTempo;
       blockStartTime = currentTime;
 
-      let currentBlockSpeed = baseSpeed;
+      let currentBlockSpeed = maxSpeed;
       let currentBlockLengthPct = maxStrokeLength;
       // Tempo multiplier for this block. Only the cooldown moves it off 1.
       let currentTempoScale = 1;
@@ -95,22 +129,22 @@ export function generateProceduralScript(durationMs, params) {
          // maxStrokeLength — starting at the maximum makes the first half of the
          // cooldown *longer* than the strokes it is supposed to be winding down from.
          const activeLengthPct = (minStrokeLength + maxStrokeLength) / 2;
-         currentBlockSpeed = baseSpeed + (1 - baseSpeed) * progress;
+         currentBlockSpeed = maxSpeed + (1 - maxSpeed) * progress;
          currentBlockLengthPct = activeLengthPct + (10 - activeLengthPct) * progress;
          currentTempoScale = 1 - 0.75 * progress; // ease down to a quarter tempo
       } else if (patternMode === 'build') {
          const activeDuration = cooldownSec > 0 ? durationMs - (cooldownSec * 1000) : durationMs;
          const progress = activeDuration > 0 ? Math.min(1, currentTime / activeDuration) : 1;
-         currentBlockSpeed = 1 + (baseSpeed - 1) * progress;
+         currentBlockSpeed = lowSpeedLevel + (maxSpeed - lowSpeedLevel) * progress;
          currentBlockLengthPct = minStrokeLength + (maxStrokeLength - minStrokeLength) * progress;
       } else if (patternMode === 'random') {
          // Random Phases: Pick a completely random speed and length within user bounds for this block
-         currentBlockSpeed = 1 + (Math.random() * (baseSpeed - 1));
+         currentBlockSpeed = lowSpeedLevel + (Math.random() * (maxSpeed - lowSpeedLevel));
          const lengthRange = maxStrokeLength - minStrokeLength;
          currentBlockLengthPct = minStrokeLength + (Math.random() * lengthRange);
       } else {
-         // Consistent mode: Use baseSpeed, but pick a random length within bounds for variety
-         currentBlockSpeed = baseSpeed;
+         // Consistent mode: Use maxSpeed, but pick a random length within bounds for variety
+         currentBlockSpeed = maxSpeed;
          const lengthRange = maxStrokeLength - minStrokeLength;
          currentBlockLengthPct = minStrokeLength + (Math.random() * lengthRange);
       }
@@ -133,7 +167,7 @@ export function generateProceduralScript(durationMs, params) {
       // 3. Linear speed CAP for this block (position-units per second). This no
       //    longer sets the rhythm — it only stops a long stroke from travelling
       //    faster than the carriage can manage.
-      const baseTargetSpeed = MIN_LINEAR_SPEED + ((currentBlockSpeed - 1) / 9) * (MAX_LINEAR_SPEED - MIN_LINEAR_SPEED);
+      const baseTargetSpeed = linearSpeedForLevel(currentBlockSpeed);
       const randFactorSpeed = (Math.random() * 2 - 1) * (randomness / 10) * 0.3;
       targetBlockSpeedVals = Math.max(10, baseTargetSpeed * (1 + randFactorSpeed));
 
@@ -187,21 +221,39 @@ export function generateProceduralScript(durationMs, params) {
     // Clamp to absolute bounds
     nextPos = Math.max(minStroke, Math.min(maxStroke, nextPos));
 
-    const distance = Math.abs(nextPos - currentPos);
+    let distance = Math.abs(nextPos - currentPos);
 
-    // Add slight per-stroke randomness to speed
+    // Add slight per-stroke randomness to speed. Jitter may wobble the ceiling
+    // but never pushes it through the floor.
     const strokeRandSpeed = (Math.random() * 2 - 1) * (randomness / 10) * 0.1;
-    const actualSpeed = Math.max(10, currentSpeedVals * (1 + strokeRandSpeed));
+    const actualSpeed = Math.max(10, minSpeedVals, currentSpeedVals * (1 + strokeRandSpeed));
 
     // Tempo sets the rhythm; the linear speed cap only stretches a stroke that
     // is too long to travel in that time. Previously the gap was derived from
     // distance alone, which welded tempo to amplitude: halving the stroke
     // length automatically doubled the stroke rate, so narrow depth zones and
     // short Max Length produced unplayably dense scripts.
-    const gapFromTempo = 60000 / Math.max(1, currentTempo);
+    const gapFromTempo = Math.max(MIN_GAP_MS, Math.min(MAX_GAP_MS, 60000 / Math.max(1, currentTempo)));
+
+    // Speed floor. A short stroke at a slow tempo crawls; rather than break the
+    // rhythm, first make the stroke long enough to move at Min Speed (never
+    // past Max Length or out of the zone), and only if that still falls short,
+    // arrive sooner.
+    let gapFromSpeedFloor = Infinity;
+    if (minSpeedVals > 0 && !inCooldown && (distance * 1000) / gapFromTempo < minSpeedVals) {
+      const maxTravel = range * (maxStrokeLength / 100);
+      const wanted = Math.min(maxTravel, (minSpeedVals * gapFromTempo) / 1000);
+      if (wanted > distance) {
+        const dir = nextPos !== currentPos ? Math.sign(nextPos - currentPos) : (movingUp ? 1 : -1);
+        nextPos = Math.round(Math.max(minStroke, Math.min(maxStroke, currentPos + dir * wanted)));
+        distance = Math.abs(nextPos - currentPos);
+      }
+      if (distance > 0) gapFromSpeedFloor = (distance / minSpeedVals) * 1000;
+    }
+
     const gapFromSpeedCap = distance > 0 ? (distance / actualSpeed) * 1000 : 0;
 
-    blockGap = Math.max(MIN_GAP_MS, Math.min(MAX_GAP_MS, Math.max(gapFromTempo, gapFromSpeedCap)));
+    blockGap = Math.max(MIN_GAP_MS, Math.min(MAX_GAP_MS, Math.max(Math.min(gapFromTempo, gapFromSpeedFloor), gapFromSpeedCap)));
 
     // Stop at the last stroke that fits. Snapping this final action onto
     // durationMs instead used to leave an arbitrarily short last gap — about

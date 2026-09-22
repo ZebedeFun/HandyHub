@@ -196,7 +196,8 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const [audioEnvelope, setAudioEnvelope] = useState(null);
 
   const [params, setParams] = useState({
-    baseSpeed: 5,
+    minSpeed: 0,
+    maxSpeed: 5,
     strokesPerMin: 200,
     minStrokeLength: 10,
     maxStrokeLength: 100,
