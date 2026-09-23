@@ -7,7 +7,8 @@
 //
 // Off unless a Stash URL and API key are set in Settings. Saving back is off
 // unless STASH_MEDIA_ROOTS lists the library folders, mounted into this
-// container at the same paths Stash uses (e.g. "/data,/extravr").
+// container at the same paths Stash uses (e.g. "/data,/extravr"). The same
+// mount also lets the video stream straight from disk instead of via Stash.
 
 const express = require('express');
 const fs = require('fs');
@@ -158,6 +159,7 @@ function proxyScene(stashPath, { passRange }) {
                 signal: controller.signal
             });
             res.status(response.status);
+            res.setHeader('X-Accel-Buffering', 'no');
             for (const h of STREAM_HEADERS) {
                 const value = response.headers.get(h);
                 if (value) res.setHeader(h, value);
@@ -174,7 +176,35 @@ function proxyScene(stashPath, { passRange }) {
     };
 }
 
-router.get('/scenes/:id/stream', proxyScene('stream', { passRange: true }));
+const proxyStream = proxyScene('stream', { passRange: true });
+
+// Stream from disk when the library is mounted here (the same setup Save to
+// Stash needs), and only go through Stash when it isn't. The proxy doubles
+// every byte's trip — Stash reads it, sends it to us, we send it on — and a
+// high-bitrate VR scene is where that shows up as stalls.
+router.get('/scenes/:id/stream', async (req, res) => {
+    let localPath = null;
+    try {
+        const scene = await findScene(req.stash, req.params.id);
+        const videoPath = scene?.files[0]?.path;
+        const normalised = videoPath && path.posix.normalize(videoPath);
+        if (normalised && isUnderMediaRoot(normalised) && fs.existsSync(normalised)) {
+            localPath = normalised;
+        }
+    } catch {
+        // Fall through to the proxy, which reports Stash being unreachable.
+    }
+    if (!localPath) return proxyStream(req, res);
+
+    // nginx otherwise spools the response to a temp file on its way through.
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.sendFile(localPath, { dotfiles: 'allow' }, (err) => {
+        // A seek or closed tab aborts mid-send; that's not a failure.
+        if (!err || res.headersSent) return;
+        console.error('Stash local stream failed:', err);
+        res.status(err.status || 500).json({ error: 'Could not read the video file' });
+    });
+});
 router.get('/scenes/:id/funscript', proxyScene('funscript', { passRange: false }));
 
 // Long videos make funscripts well past express.json()'s 100kb default.
