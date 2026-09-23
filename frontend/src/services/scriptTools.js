@@ -902,3 +902,277 @@ export function rhythmRepair(actions, range, { evenHeights = 0.75, minConfidence
   }
   return { actions: null, message: 'No steady rhythm found here — nothing was changed.' };
 }
+
+// ---------------------------------------------------------------------------
+// Rebuild
+// ---------------------------------------------------------------------------
+//
+// For scripts that catch the basic movement but draw it messily: every top and
+// bottom a little early or late, heights all over the place, the odd stroke
+// missing or doubled. Rather than patching points one at a time, it reads the
+// script as a sequence of tops and bottoms and redraws it from three smooth
+// things:
+//   - the beat: where the motion clearly repeats, the best chain of tops and
+//     bottoms through the whole stretch is chosen at once (dynamic
+//     programming), so missing strokes are filled and stray ones dropped;
+//   - the timing: each top/bottom moves towards a straight-line fit of its
+//     neighbours of the same kind, which evens out jitter but keeps a steady
+//     slow-up/fast-down;
+//   - the levels: tops towards a rolling top level, bottoms towards a rolling
+//     bottom level. Rolling medians keep a real change (a new section) sharp
+//     while ignoring stroke-to-stroke noise.
+// Points between two tops/bottoms that both survive are carried along with
+// them, so easing within a stroke is kept.
+
+// Beat chain scoring. A chosen top/bottom earns 0.5 plus its prominence (its
+// height against the local typical stroke, capped at 1.5); linking two costs
+// the squared tempo error in units of REBUILD_TEMPO_SIGMA (ln of the ratio),
+// each filled-in stroke costs REBUILD_FILL_COST, and each chain costs
+// REBUILD_CHAIN_COST to start — so a chain only forms where a run of real
+// strokes pays for it.
+const REBUILD_TEMPO_SIGMA = 0.25;
+const REBUILD_MAX_TEMPO_DEV = Math.log(1.5);
+const REBUILD_FILL_COST = 0.8;
+const REBUILD_CHAIN_COST = 2.5;
+const REBUILD_MIN_CHAIN = 6;
+const REBUILD_MAX_LOOKBACK = 12;
+// A longer gap between two turns is a pause or a hold, not a stroke: timing
+// is never smoothed across one.
+const REBUILD_BREAK_MS = 2000;
+// The height strokes are evened out to, as a quantile of their neighbours'.
+// Above the median so a few stubby strokes don't define "typical".
+const REBUILD_HEIGHT_Q = 0.6;
+
+// Rolling statistic over `items` (sorted by .at), evaluated at each of `times`.
+function rolling(items, times, halfMs, stat) {
+  const out = new Array(times.length).fill(null);
+  let lo = 0;
+  let hi = 0;
+  times.forEach((t, k) => {
+    while (lo < items.length && items[lo].at < t - halfMs) lo++;
+    while (hi < items.length && items[hi].at <= t + halfMs) hi++;
+    if (hi > lo) out[k] = stat(items.slice(lo, hi).map(x => x.v).sort((a, b) => a - b));
+  });
+  return out;
+}
+
+// Chooses the beat chains: runs of tops/bottoms, with strokes filled in where
+// one is missing, that best fit the local tempo. Returns chains as arrays of
+// { k (event index), fill (strokes filled in before it) }.
+function findBeatChains(ev, track, { minConfidence, maxFillMs }) {
+  const n = ev.length;
+  const typical = rolling(ev.filter(e => e.step >= 3).map(e => ({ at: e.at, v: e.step })), ev.map(e => e.at), 5000, median);
+  const reward = ev.map((e, k) => {
+    const sides = [];
+    if (k > 0) sides.push(Math.abs(e.pos - ev[k - 1].pos));
+    if (k + 1 < n) sides.push(Math.abs(ev[k + 1].pos - e.pos));
+    const prominence = Math.min(...sides) / Math.max(10, typical[k] || 10);
+    return 0.5 + Math.min(1.5, prominence);
+  });
+  const halfAt = (t) => {
+    const p = tempoAt(track, t);
+    return p && p.cycle > 0 && p.conf >= minConfidence ? p.cycle / 2 : 0;
+  };
+
+  const best = new Float64Array(n);
+  const from = new Array(n);
+  let runBest = 0;
+  let runArg = -1;
+  for (let i = 0; i < n; i++) {
+    let b = runBest - REBUILD_CHAIN_COST;
+    let f = { j: runArg, m: 0 }; // m = 0: starts a chain
+    for (let j = i - 1; j >= 0 && j >= i - REBUILD_MAX_LOOKBACK; j--) {
+      const gap = ev[i].at - ev[j].at;
+      if (gap > maxFillMs + 3000) break;
+      if (gap <= 0) continue;
+      const H = halfAt((ev[i].at + ev[j].at) / 2);
+      if (!H) continue;
+      // m half-strokes from j to i: odd between a top and a bottom, even
+      // between two of a kind.
+      for (let m = ev[i].top === ev[j].top ? 2 : 1; (m - 1) * H <= maxFillMs; m += 2) {
+        const dev = Math.log(gap / (m * H));
+        if (dev < -REBUILD_MAX_TEMPO_DEV) break;
+        if (dev > REBUILD_MAX_TEMPO_DEV) continue;
+        const s = best[j] - (dev / REBUILD_TEMPO_SIGMA) ** 2 - REBUILD_FILL_COST * (m - 1);
+        if (s > b) { b = s; f = { j, m }; }
+      }
+    }
+    best[i] = b + reward[i];
+    from[i] = f;
+    if (best[i] > runBest) { runBest = best[i]; runArg = i; }
+  }
+
+  const chains = [];
+  let chain = [];
+  for (let i = runArg; i >= 0;) {
+    const f = from[i];
+    chain.push({ k: i, fill: Math.max(0, f.m - 1) });
+    if (f.m === 0) {
+      chain.reverse();
+      if (chain.length + chain.reduce((s, x) => s + x.fill, 0) >= REBUILD_MIN_CHAIN) chains.push(chain);
+      chain = [];
+    }
+    i = f.j;
+  }
+  return chains.reverse();
+}
+
+// Straight-line fit of times against position in the run, over same-kind
+// neighbours within ±w: where each turn would be if the beat were steady.
+function steadyTimes(times, w) {
+  return times.map((t, k) => {
+    let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+    for (let j = k - w; j <= k + w; j++) {
+      if (j < 0 || j >= times.length || (j - k) % 2 !== 0) continue;
+      n++; sx += j; sy += times[j]; sxx += j * j; sxy += j * times[j];
+    }
+    const den = n * sxx - sx * sx;
+    if (n < 3 || den === 0) return t;
+    const slope = (n * sxy - sx * sy) / den;
+    return (sy - slope * sx) / n + slope * k;
+  });
+}
+
+/**
+ * Rebuild: redraws a messy script from its underlying motion (see above).
+ * @param {number} opts.steady - 0-1: how far each top/bottom moves towards a
+ *   steady beat (0 keeps the tracked timing).
+ * @param {number} opts.even - 0-1: how far heights move to the rolling levels.
+ * @param {number} opts.span - strokes either side that the timing and heights are
+ *   evened out over: more is steadier, fewer follows changes sooner.
+ * @param {number} opts.fillSec - longest run of missing strokes to fill (0 = never add strokes).
+ * @param {number} opts.minConfidence - 0-1: how clearly the motion must repeat
+ *   before strokes are filled or dropped there.
+ * @param {boolean} opts.fitDevice - finish with Fit to Handy.
+ * @returns {{actions, message}} actions null when nothing could be rebuilt.
+ */
+export function rebuild(actions, range, { steady = 0.6, even = 0.7, span = 6, fillSec = 3, minConfidence = 0.55, fitDevice = true } = {}) {
+  let report = null;
+  const actionsOut = applyToRange(actions, range, (pts, lock) => {
+    if (pts.length < 10) return null;
+    let p = removeSpikes(pts, DEVICE_MAX_UNITS_PER_SEC * 3);
+    p = simplifyPoints(p, { tolerance: 2 });
+    p = removeWobbles(p, WOBBLE_UNITS);
+    const ev = rhythmEvents(p);
+    if (ev.length < 6) return null;
+    ev.forEach((e, k) => { e.step = k ? Math.abs(e.pos - ev[k - 1].pos) : 0; });
+
+    // 1. The beat: chains of real strokes, with gaps filled.
+    const track = trackTempo(p);
+    const chains = findBeatChains(ev, track, { minConfidence, maxFillMs: fillSec * 1000 });
+
+    // The rebuilt sequence of tops/bottoms. `src` is the event it came from,
+    // null for a filled-in stroke.
+    const nodes = [];
+    let added = 0;
+    let dropped = 0;
+    let chainMs = 0;
+    let c = 0;
+    for (let k = 0; k < ev.length;) {
+      const chain = chains[c];
+      if (!chain || k < chain[0].k) {
+        nodes.push({ at: ev[k].at, pos: ev[k].pos, top: ev[k].top, src: k });
+        k++;
+        continue;
+      }
+      let prev = null;
+      for (const link of chain) {
+        const e = ev[link.k];
+        for (let q = 1; q <= link.fill; q++) {
+          nodes.push({ at: prev.at + ((e.at - prev.at) * q) / (link.fill + 1), pos: null, top: !nodes[nodes.length - 1].top, src: null });
+          added++;
+        }
+        nodes.push({ at: e.at, pos: e.pos, top: e.top, src: link.k });
+        prev = e;
+      }
+      const last = chain[chain.length - 1].k;
+      dropped += last - chain[0].k + 1 - chain.length;
+      chainMs += ev[last].at - ev[chain[0].k].at;
+      k = last + 1;
+      c++;
+    }
+
+    // The script's own ends are not turns: never move them.
+    const pinned = (node) => node.src === 0 || node.src === ev.length - 1;
+
+    // 2. Levels: each turn moves towards the typical stroke height and centre
+    //    of the strokes around it. Counted in strokes, not seconds, so a burst
+    //    of small fast strokes is judged against itself rather than against
+    //    the big slow ones either side of it.
+    const stroke = nodes.map((nd, k) => {
+      const prev = nodes[k - 1];
+      if (!prev || nd.pos === null || prev.pos === null || nd.top === prev.top) return null;
+      return { height: Math.abs(nd.pos - prev.pos), centre: (nd.pos + prev.pos) / 2 };
+    });
+    const newPos = nodes.map((nd, k) => {
+      if (pinned(nd)) return nd.pos;
+      const near = stroke.slice(Math.max(1, k - span + 1), k + span + 1).filter(Boolean);
+      if (near.length < 3) return nd.pos ?? nodes[k - 1].pos;
+      const height = quantile(near.map(x => x.height).sort((a, b) => a - b), REBUILD_HEIGHT_Q);
+      const centre = median(near.map(x => x.centre));
+      const target = clampPos(centre + (nd.top ? height : -height) / 2);
+      if (nd.pos === null) return target;
+      // Trackers undershoot far more than they overshoot: a stubby stroke is
+      // pulled out fully, a big one only brought half as far back in.
+      const outward = nd.top ? target > nd.pos : target < nd.pos;
+      return nd.pos + (target - nd.pos) * (outward ? even : even / 2);
+    });
+
+    // 3. Timing, within runs of alternating tops and bottoms. A hold or a
+    //    pause ends a run, and a run's first and last turns stay put.
+    const newAt = nodes.map(nd => nd.at);
+    for (let s = 0; s < nodes.length;) {
+      let e = s + 1;
+      while (e < nodes.length && nodes[e].top !== nodes[e - 1].top && nodes[e].at - nodes[e - 1].at <= REBUILD_BREAK_MS) e++;
+      if (e - s >= 5) {
+        const run = nodes.slice(s, e);
+        const fit = steadyTimes(run.map(nd => nd.at), Math.max(2, span));
+        for (let j = 1; j < run.length - 1; j++) {
+          if (pinned(run[j])) continue;
+          const amount = run[j].src === null ? 1 : steady;
+          newAt[s + j] = run[j].at + (fit[j] - run[j].at) * amount;
+        }
+      }
+      s = e;
+    }
+    for (let k = 1; k < newAt.length; k++) newAt[k] = Math.max(newAt[k], newAt[k - 1] + 30);
+
+    // 4. Draw it, carrying the points between two surviving turns along.
+    const out = [];
+    nodes.forEach((nd, k) => {
+      out.push({ at: newAt[k], pos: clampPos(newPos[k]) });
+      const next = nodes[k + 1];
+      if (!next || nd.src === null || next.src !== nd.src + 1) return;
+      const a = ev[nd.src];
+      const b = ev[next.src];
+      for (let i = a.i + 1; i < b.i; i++) {
+        const q = p[i];
+        const at = newAt[k] + ((q.at - a.at) / (b.at - a.at)) * (newAt[k + 1] - newAt[k]);
+        const pos = b.pos !== a.pos
+          ? newPos[k] + ((q.pos - a.pos) / (b.pos - a.pos)) * (newPos[k + 1] - newPos[k])
+          : q.pos + (newPos[k] - a.pos);
+        out.push({ at, pos: clampPos(pos) });
+      }
+    });
+    // Smoothing can pull the first or last turn a little outward; on a range
+    // that would land it outside the selection, so nothing may pass the first
+    // or last point that was in it.
+    const earliest = pts[lock.first ? 1 : 0].at;
+    const latest = pts[pts.length - (lock.last ? 2 : 1)].at;
+    for (const q of out) q.at = Math.min(latest, Math.max(earliest, q.at));
+    if (lock.first) out[0] = pts[0];
+    if (lock.last) out[out.length - 1] = pts[pts.length - 1];
+
+    const spanMs = pts[pts.length - 1].at - pts[0].at;
+    report = { chains: chains.length, share: spanMs > 0 ? Math.round((100 * chainMs) / spanMs) : 0, added, dropped, turns: nodes.length };
+    const tidied = tidy(out);
+    return fitDevice ? fitToHandyPoints(tidied, {}, lock) : tidied;
+  });
+
+  if (!actionsOut) return { actions: null, message: 'Too few strokes here to rebuild.' };
+  const r = report;
+  const beat = r.chains
+    ? `${r.chains} steady stretch${r.chains === 1 ? '' : 'es'} (${r.share}% of it): ${r.added} strokes filled in, ${r.dropped} stray turns dropped`
+    : 'no steady beat found to fill or trim';
+  return { actions: actionsOut, message: `${r.turns} tops and bottoms smoothed; ${beat}` };
+}

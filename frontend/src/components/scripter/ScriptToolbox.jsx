@@ -1,7 +1,7 @@
 import React from 'react';
-import { Sparkles, Gauge, Spline, MoveVertical, BarChart3, TrendingUp, Crosshair, Activity, Loader2, Triangle } from 'lucide-react';
+import { Sparkles, Gauge, Spline, MoveVertical, BarChart3, TrendingUp, Crosshair, Activity, Loader2, Triangle, Wand2 } from 'lucide-react';
 import {
-  scriptStats, cleanUp, fitToHandy, simplify, straighten, fitToRange, strokeHeightMatch, driftFix, rhythmRepair,
+  scriptStats, cleanUp, fitToHandy, simplify, straighten, fitToRange, strokeHeightMatch, driftFix, rhythmRepair, rebuild,
   DEVICE_MAX_UNITS_PER_SEC,
 } from '../../services/scriptTools';
 
@@ -22,6 +22,7 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
   const [height, setHeight] = React.useState({ targetMedian: 75, strength: 100 });
   const [drift, setDrift] = React.useState({ windowSec: 8 });
   const [rhythm, setRhythm] = React.useState({ minConfidence: 60, evenHeights: 75, maxGapSec: 4, fitDevice: true });
+  const [rebuildOpts, setRebuildOpts] = React.useState({ steady: 60, even: 70, span: 6, fillSec: 3, fitDevice: true });
   const [busy, setBusy] = React.useState(null); // tool name while a slow tool runs
 
   const hasScript = actions && actions.length >= 2;
@@ -175,6 +176,21 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
           Finish with Fit to Handy
         </label>
         {applyButton('Clean Up', () => run('Clean Up', (a, r) => cleanUp(a, r, { ...clean, amplify: clean.amplify / 100 })))}
+      </>)}
+
+      {card(Wand2, 'Rebuild', 'For a script that catches the basic movement but draws it messily — tops and bottoms early or late, heights all over the place, strokes missing or doubled. Redraws it from the underlying motion: a steady beat where the motion repeats (filling missing strokes, dropping stray ones), even timing, and heights evened out against the strokes around each one. Bursts of small strokes stay small; stubby strokes are pulled out more than big ones are pulled in.', <>
+        {slider('Steady beat', rebuildOpts.steady, v => setRebuildOpts(o => ({ ...o, steady: v })), { min: 0, max: 100, step: 5, unit: '%', lowHint: 'Keep tracked timing', highHint: 'Metronome-steady' })}
+        {slider('Even heights', rebuildOpts.even, v => setRebuildOpts(o => ({ ...o, even: v })), { min: 0, max: 100, step: 5, unit: '%', lowHint: 'Keep heights as tracked', highHint: 'Every stroke like its neighbours' })}
+        {slider('Smooth over', rebuildOpts.span, v => setRebuildOpts(o => ({ ...o, span: v })), { min: 2, max: 20, display: `${rebuildOpts.span} strokes each side`, lowHint: 'Follows changes quickly', highHint: 'Very consistent' })}
+        {slider('Fill missing strokes up to', rebuildOpts.fillSec, v => setRebuildOpts(o => ({ ...o, fillSec: v })), { min: 0, max: 6, step: 0.5, unit: 's', lowHint: '0: never add strokes', highHint: 'Bridge long dropouts' })}
+        <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+          <input type="checkbox" checked={rebuildOpts.fitDevice} onChange={e => setRebuildOpts(o => ({ ...o, fitDevice: e.target.checked }))} />
+          Finish with Fit to Handy
+        </label>
+        <Hint>Works from the script alone, not the video: it can make a messy script consistent, but not tell whether the original was in sync. Takes a second or two on a long script.</Hint>
+        {applyButton('Rebuild', () => runSlow('Rebuild', (a, r) => rebuild(a, r, {
+          steady: rebuildOpts.steady / 100, even: rebuildOpts.even / 100, span: rebuildOpts.span, fillSec: rebuildOpts.fillSec, fitDevice: rebuildOpts.fitDevice,
+        })))}
       </>)}
 
       {card(Activity, 'Rhythm Repair', 'For AI-made scripts that follow the action but badly — missed strokes, stubby half-strokes, stray blips. Finds where the motion repeats, then rebuilds those stretches as steady strokes: real tops and bottoms that fit the rhythm are kept (so it stays in sync with the video), missing ones are added, and heights are evened out. Anything without a clear rhythm is left exactly as it was.', <>
