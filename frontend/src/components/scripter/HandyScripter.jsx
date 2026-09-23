@@ -5,6 +5,7 @@ import GenerationControls from './GenerationControls';
 import Heatmap from './Heatmap';
 import DeviceSimulator from './DeviceSimulator';
 import ScrollingTimeline from './ScrollingTimeline';
+import VrView from './VrView';
 import { generateProceduralScript, generatePartialScript, modifyPartialScript, buildTapActions } from '../../services/scriptGenerator';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
 import { analyzeAudioFile, generateAudioScript, DEFAULT_AUDIO_PARAMS } from '../../services/audioScriptGenerator';
@@ -136,6 +137,10 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const [playbackRate, setPlaybackRate] = useState(1);
   const tapsRef = useRef([]);
   const [isViewingMode, setIsViewingMode] = useState(false);
+  const [isVrMode, setIsVrMode] = useState(false);
+  // A flat video shown through the VR view just looks broken, so each new
+  // video starts flat.
+  useEffect(() => setIsVrMode(false), [videoUrl]);
 
   // The parameter panel is by far the tallest thing on the page, so collapsing
   // it is the main way to hand the video its room back. Remembered so the
@@ -801,8 +806,24 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
                       onPlay={handlePlay}
                       onPause={handlePause}
                       onSeeked={handleSeeked}
+                      // In VR mode the frame is drawn by VrView; pushing the
+                      // video's own picture out of its box leaves just the
+                      // native controls showing below it. Native fullscreen
+                      // would show only that empty box, so it goes too.
+                      style={isVrMode ? { objectPosition: '-100000px 0' } : undefined}
+                      controlsList={isVrMode ? 'nofullscreen' : undefined}
                     />
-                  
+
+                    {isVrMode && <VrView videoRef={videoRef} />}
+
+                    <button
+                      onClick={() => setIsVrMode(v => !v)}
+                      className={`absolute top-4 right-16 z-40 px-2 py-1.5 rounded text-sm font-bold transition-opacity ${isVrMode ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-black/50 hover:bg-black/80 text-white opacity-0 group-hover:opacity-100'}`}
+                      title={isVrMode ? 'Back to the flat video' : 'VR: one eye of a 180° side-by-side video — drag to look around, scroll to zoom'}
+                    >
+                      VR
+                    </button>
+
                     {!isViewingMode && (
                       <button 
                         onClick={() => setIsViewingMode(true)} 
