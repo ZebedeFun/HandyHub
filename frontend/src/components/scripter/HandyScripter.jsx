@@ -30,6 +30,10 @@ const MIN_POINT_GAP_MS = 20;
 // ends within a few pixels; tune this one number if it still looks off.
 const NATIVE_SCRUBBER_INSET_PX = 16;
 
+// How far off exactly 2:1 a video can be and still count as 180° VR. Loose
+// enough for odd encodes (e.g. 4000x1984), far tighter than any flat format.
+const VR_ASPECT_TOLERANCE = 0.05;
+
 // Below lg the page falls back to a single stacked column, and there the video
 // still needs a floor before the page scrolls instead of squeezing it further.
 // It is written as a literal class (min-h-[360px]) rather than built from a
@@ -139,7 +143,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   const [isViewingMode, setIsViewingMode] = useState(false);
   const [isVrMode, setIsVrMode] = useState(false);
   // A flat video shown through the VR view just looks broken, so each new
-  // video starts flat.
+  // video starts flat until its metadata says otherwise.
   useEffect(() => setIsVrMode(false), [videoUrl]);
 
   // The parameter panel is by far the tallest thing on the page, so collapsing
@@ -366,7 +370,13 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
   // Video Events
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
-      setDurationMs(videoRef.current.duration * 1000);
+      const { duration, videoWidth, videoHeight } = videoRef.current;
+      setDurationMs(duration * 1000);
+      // 180° side-by-side is two square eyes, so 2:1 — flat video is never
+      // that wide. 360° mono is 2:1 too, but rare enough to toggle by hand.
+      if (videoHeight && Math.abs(videoWidth / videoHeight - 2) < VR_ASPECT_TOLERANCE) {
+        setIsVrMode(true);
+      }
     }
   };
 
