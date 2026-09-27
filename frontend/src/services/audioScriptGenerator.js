@@ -67,9 +67,27 @@ const getAudioContext = () => {
 export async function analyzeAudioFile(file, fps = AUDIO_FPS) {
   const arrayBuffer = await file.arrayBuffer();
   const audioBuffer = await getAudioContext().decodeAudioData(arrayBuffer);
-  const channelData = audioBuffer.getChannelData(0);
+  return envelopeFromSamples(audioBuffer.getChannelData(0), audioBuffer.sampleRate, fps);
+}
 
-  const blockSize = Math.floor(audioBuffer.sampleRate / fps);
+// Same envelope, from the server's ffmpeg extraction (raw 16-bit mono PCM)
+// rather than the whole video. For videos too big for the browser to decode
+// itself — anything past about 2 GB, which a VR scene easily is.
+export async function analyzeAudioUrl(url, fps = AUDIO_FPS) {
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `Audio extraction failed (${res.status})`);
+  }
+  const sampleRate = Number(res.headers.get('X-Sample-Rate'));
+  const buffer = await res.arrayBuffer();
+  return envelopeFromSamples(new Int16Array(buffer, 0, buffer.byteLength >> 1), sampleRate, fps);
+}
+
+// The scale of the samples doesn't matter: the envelope is normalised to its
+// own peak, so 16-bit integers and -1..1 floats give the same result.
+function envelopeFromSamples(channelData, sampleRate, fps) {
+  const blockSize = Math.floor(sampleRate / fps);
   const envelope = [];
 
   // Every 10th sample is plenty for an RMS at this resolution, and keeps a

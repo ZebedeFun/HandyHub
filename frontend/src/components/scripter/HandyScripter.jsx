@@ -8,7 +8,7 @@ import ScrollingTimeline from './ScrollingTimeline';
 import VrView from './VrView';
 import { generateProceduralScript, generatePartialScript, modifyPartialScript, buildTapActions } from '../../services/scriptGenerator';
 import { getServerTimeOffset, hsspSetup, hsspPlay, hsspStop } from '../../services/handyService';
-import { analyzeAudioFile, generateAudioScript, DEFAULT_AUDIO_PARAMS } from '../../services/audioScriptGenerator';
+import { analyzeAudioFile, analyzeAudioUrl, generateAudioScript, DEFAULT_AUDIO_PARAMS } from '../../services/audioScriptGenerator';
 import { downloadFunscript } from '../../services/funscriptFile';
 
 // The device simulator occupies its own w-20 column to the LEFT of the video,
@@ -244,11 +244,12 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
       setStashScene(scene);
       setStashSaveState('idle');
       setVideoUrl(streamUrl);
-      // Stands in for an uploaded File: Audio mode only needs a name and the
-      // bytes, and fetching the bytes waits until it is actually used.
+      // Stands in for an uploaded File. Audio mode reads the soundtrack the
+      // server extracts rather than the video's own bytes, which for a VR
+      // scene are more than the browser can hold.
       setVideoFile({
         name: scene.basename || scene.title,
-        arrayBuffer: () => fetch(streamUrl).then(r => r.arrayBuffer())
+        audioUrl: `/api/stash/scenes/${stashSceneId}/audio`
       });
       setAudioEnvelope(null);
       setImportedScriptName(null);
@@ -431,7 +432,9 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
     try {
       let envelope = audioEnvelope;
       if (!envelope) {
-        envelope = await analyzeAudioFile(videoFile);
+        envelope = videoFile.audioUrl
+          ? await analyzeAudioUrl(videoFile.audioUrl)
+          : await analyzeAudioFile(videoFile);
         setAudioEnvelope(envelope);
       }
       const script = generateAudioScript(envelope, audioParams);
@@ -443,7 +446,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
       commitFunscript({ actions: script.actions }, null, { freshTiming: true });
     } catch (err) {
       console.error("Audio analysis failed:", err);
-      alert("Could not extract audio from this video. Ensure it contains an audio track.");
+      alert(`Could not extract audio from this video: ${err.message}`);
     } finally {
       setIsAnalyzingAudio(false);
     }

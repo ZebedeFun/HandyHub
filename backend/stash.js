@@ -13,6 +13,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { Readable } = require('stream');
 
 const settingsPath = path.join(__dirname, 'data', 'settings.json');
@@ -178,22 +179,28 @@ function proxyScene(stashPath, { passRange }) {
 
 const proxyStream = proxyScene('stream', { passRange: true });
 
+// The scene's video file as seen inside this container, or null when the
+// library isn't mounted here (or Stash can't be reached to ask).
+async function localVideoPath(config, id) {
+    try {
+        const scene = await findScene(config, id);
+        const videoPath = scene?.files[0]?.path;
+        const normalised = videoPath && path.posix.normalize(videoPath);
+        if (normalised && isUnderMediaRoot(normalised) && fs.existsSync(normalised)) {
+            return normalised;
+        }
+    } catch {
+        // Callers fall back to going through Stash, which reports it being unreachable.
+    }
+    return null;
+}
+
 // Stream from disk when the library is mounted here (the same setup Save to
 // Stash needs), and only go through Stash when it isn't. The proxy doubles
 // every byte's trip — Stash reads it, sends it to us, we send it on — and a
 // high-bitrate VR scene is where that shows up as stalls.
 router.get('/scenes/:id/stream', async (req, res) => {
-    let localPath = null;
-    try {
-        const scene = await findScene(req.stash, req.params.id);
-        const videoPath = scene?.files[0]?.path;
-        const normalised = videoPath && path.posix.normalize(videoPath);
-        if (normalised && isUnderMediaRoot(normalised) && fs.existsSync(normalised)) {
-            localPath = normalised;
-        }
-    } catch {
-        // Fall through to the proxy, which reports Stash being unreachable.
-    }
+    const localPath = await localVideoPath(req.stash, req.params.id);
     if (!localPath) return proxyStream(req, res);
 
     // nginx otherwise spools the response to a temp file on its way through.
@@ -205,6 +212,68 @@ router.get('/scenes/:id/stream', async (req, res) => {
         res.status(err.status || 500).json({ error: 'Could not read the video file' });
     });
 });
+// The Scripter's Audio mode only needs the soundtrack's loudness, but a VR
+// scene runs to several GB — more than a browser will hold in one buffer, let
+// alone decode. ffmpeg pulls out just the audio, downmixed and resampled, and
+// sends it as raw 16-bit mono PCM: a 15-minute scene comes to about 30 MB.
+const AUDIO_SAMPLE_RATE = 16000;
+
+router.get('/scenes/:id/audio', async (req, res) => {
+    const localPath = await localVideoPath(req.stash, req.params.id);
+    // Without the library mounted, ffmpeg reads the video from Stash itself.
+    const input = localPath
+        ? ['-i', localPath]
+        : ['-headers', `ApiKey: ${req.stash.apiKey}\r\n`, '-i', `${req.stash.url}/scene/${req.params.id}/stream`];
+
+    const ffmpeg = spawn('ffmpeg', [
+        '-hide_banner', '-loglevel', 'error', '-nostdin',
+        ...input,
+        '-map', '0:a:0', '-ac', '1', '-ar', String(AUDIO_SAMPLE_RATE),
+        '-f', 's16le', 'pipe:1'
+    ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+    let stderr = '';
+    ffmpeg.stderr.on('data', chunk => { stderr += chunk; });
+
+    // Headers wait for the first bytes, so a file ffmpeg can't read still gets
+    // a proper error status rather than an empty 200.
+    ffmpeg.stdout.once('data', () => {
+        res.setHeader('Content-Type', 'application/octet-stream');
+        res.setHeader('X-Sample-Rate', String(AUDIO_SAMPLE_RATE));
+        res.setHeader('X-Accel-Buffering', 'no');
+    });
+    ffmpeg.stdout.pipe(res, { end: false });
+
+    let clientGone = false;
+    const onClientGone = () => {
+        clientGone = true;
+        ffmpeg.kill('SIGKILL');
+    };
+    res.on('close', onClientGone);
+
+    ffmpeg.on('error', (err) => {
+        res.off('close', onClientGone);
+        console.error('Could not start ffmpeg:', err);
+        if (!res.headersSent) res.status(500).json({ error: `Could not start ffmpeg: ${err.message}` });
+        else res.destroy();
+    });
+
+    ffmpeg.on('close', (code, signal) => {
+        res.off('close', onClientGone);
+        // A spawn failure has already been answered by the error handler.
+        if (clientGone || res.writableEnded) return;
+        if (code === 0) return res.end();
+        const detail = stderr.trim().split('\n').pop() || `ffmpeg exited with ${code ?? signal}`;
+        console.error(`Audio extraction failed for scene ${req.params.id}:`, stderr.trim());
+        // Mid-stream, the only way to tell the browser is to cut it off.
+        if (res.headersSent) return res.destroy();
+        const noAudio = /matches no streams/i.test(stderr);
+        res.status(noAudio ? 422 : 500).json({
+            error: noAudio ? 'This video has no audio track' : `Audio extraction failed: ${detail}`
+        });
+    });
+});
+
 router.get('/scenes/:id/funscript', proxyScene('funscript', { passRange: false }));
 
 // Long videos make funscripts well past express.json()'s 100kb default.
