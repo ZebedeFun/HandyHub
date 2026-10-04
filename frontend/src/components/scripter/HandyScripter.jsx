@@ -769,6 +769,7 @@ export default function HandyScripter({ isDarkMode, toggleTheme, settings, openS
               shiftTrimmedCount={shiftTrimmed.length}
               toolActions={funscript ? funscript.actions : null}
               toolSelection={toolSelection}
+              toolDurationMs={durationMs}
               onApplyTool={handleApplyTool}
             />
           </div>

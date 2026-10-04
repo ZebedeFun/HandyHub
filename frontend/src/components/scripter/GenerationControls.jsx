@@ -38,7 +38,7 @@ function SpeedBracketReadout({ params }) {
   );
 }
 
-export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, stashScene, stashSaveState, onSaveToStash, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount, patternPlan, toolActions, toolSelection, onApplyTool }) {
+export default function GenerationControls({ params, setParams, onGenerate, canDownload, onDownload, stashScene, stashSaveState, onSaveToStash, onFixJitterWholeScript, onUndo, onRedo, canUndo, canRedo, collapsed, onToggleCollapsed, mode, setMode, audioParams, setAudioParams, isAnalyzingAudio, hasVideo, isRecording, tapStyle, setTapStyle, tapOffsetMs, setTapOffsetMs, tapCount, playbackRate, setPlaybackRate, onTap, onShiftScript, shiftedByMs, shiftTrimmedCount, patternPlan, toolActions, toolSelection, toolDurationMs, onApplyTool }) {
   // A video that is out by seconds would take dozens of clicks on the nudge
   // buttons, so a typed amount sits under them.
   const [shiftAmount, setShiftAmount] = React.useState('1');
@@ -378,6 +378,7 @@ export default function GenerationControls({ params, setParams, onGenerate, canD
         <ScriptToolbox
           actions={toolActions}
           selection={toolSelection}
+          durationMs={toolDurationMs}
           onApply={onApplyTool}
           Hint={Hint}
           SectionTitle={SectionTitle}

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Sparkles, Gauge, Spline, MoveVertical, BarChart3, TrendingUp, Crosshair, Activity, Loader2, Triangle, Wand2 } from 'lucide-react';
+import { Sparkles, Gauge, Spline, MoveVertical, BarChart3, TrendingUp, Crosshair, Activity, Loader2, Triangle, Wand2, Waves } from 'lucide-react';
 import {
-  scriptStats, cleanUp, fitToHandy, simplify, straighten, fitToRange, strokeHeightMatch, driftFix, rhythmRepair, rebuild,
+  scriptStats, cleanUp, fitToHandy, simplify, straighten, fitToRange, strokeHeightMatch, driftFix, rhythmRepair, rebuild, fillBlanks,
   DEVICE_MAX_UNITS_PER_SEC,
 } from '../../services/scriptTools';
 
@@ -10,7 +10,7 @@ const fmtSec = (ms) => `${(ms / 1000).toFixed(1)}s`;
 // Repairs for the loaded script, generated here or not. Every tool works on the
 // current timeline/heatmap selection if there is one, otherwise on the whole
 // script, and lands in the edit history so Undo reverses it.
-export default function ScriptToolbox({ actions, selection, onApply, Hint, SectionTitle }) {
+export default function ScriptToolbox({ actions, selection, durationMs, onApply, Hint, SectionTitle }) {
   const [useSelection, setUseSelection] = React.useState(true);
   const [result, setResult] = React.useState(null); // { tool, before, after } | { tool, error }
 
@@ -23,6 +23,7 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
   const [drift, setDrift] = React.useState({ windowSec: 8 });
   const [rhythm, setRhythm] = React.useState({ minConfidence: 60, evenHeights: 75, maxGapSec: 4, fitDevice: true });
   const [rebuildOpts, setRebuildOpts] = React.useState({ steady: 60, even: 70, span: 6, fillSec: 3, fitDevice: true });
+  const [blanks, setBlanks] = React.useState({ minGapSec: 5, flatUnits: 5, low: 30, high: 70, cycleSec: 2, ends: false });
   const [busy, setBusy] = React.useState(null); // tool name while a slow tool runs
 
   const hasScript = actions && actions.length >= 2;
@@ -205,6 +206,22 @@ export default function ScriptToolbox({ actions, selection, onApply, Hint, Secti
         {applyButton('Repair Rhythm', () => runSlow('Repair Rhythm', (a, r) => rhythmRepair(a, r, {
           minConfidence: rhythm.minConfidence / 100, evenHeights: rhythm.evenHeights / 100, maxGapSec: rhythm.maxGapSec, fitDevice: rhythm.fitDevice,
         })))}
+      </>)}
+
+      {card(Waves, 'Fill Blanks', 'For videos with stretches where the script does nothing — no points for a long time, or a hold that barely moves. Fills each one with a steady, gentle wave that starts from and returns to the script either side.', <>
+        {slider('Fill blanks of at least', blanks.minGapSec, v => setBlanks(b => ({ ...b, minGapSec: v })), { min: 2, max: 30, unit: 's', lowHint: 'Also short pauses', highHint: 'Only long empty stretches' })}
+        {slider('Counts as blank if it moves less than', blanks.flatUnits, v => setBlanks(b => ({ ...b, flatUnits: v })), { min: 0, max: 20, unit: ' units', lowHint: '0: only empty or perfectly still', highHint: 'Also tiny wiggles' })}
+        <div className="flex gap-4">
+          <div className="flex-1">{slider('Wave bottom', blanks.low, v => setBlanks(b => ({ ...b, low: Math.min(v, b.high) })), { min: 0, max: 100, unit: '%' })}</div>
+          <div className="flex-1">{slider('Wave top', blanks.high, v => setBlanks(b => ({ ...b, high: Math.max(v, b.low) })), { min: 0, max: 100, unit: '%' })}</div>
+        </div>
+        {slider('Wave speed', blanks.cycleSec, v => setBlanks(b => ({ ...b, cycleSec: v })), { min: 1, max: 6, step: 0.5, display: `${blanks.cycleSec}s per up-and-down`, lowHint: 'Brisker', highHint: 'Slow and lazy' })}
+        <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+          <input type="checkbox" checked={blanks.ends} disabled={!durationMs} onChange={e => setBlanks(b => ({ ...b, ends: e.target.checked }))} />
+          Also fill before the first point and after the last
+        </label>
+        <Hint>With a selection, only blanks inside it are filled — select part of a long blank to fill just that part.</Hint>
+        {applyButton('Fill Blanks', () => run('Fill Blanks', (a, r) => fillBlanks(a, r, { ...blanks, durationMs })))}
       </>)}
 
       {card(Gauge, 'Fit to Handy', 'Clears the red "too fast" marks: drops points closer together than the device can reverse, and shortens strokes it cannot travel in time. Timing is kept.', <>

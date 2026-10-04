@@ -1176,3 +1176,112 @@ export function rebuild(actions, range, { steady = 0.6, even = 0.7, span = 6, fi
     : 'no steady beat found to fill or trim';
   return { actions: actionsOut, message: `${r.turns} tops and bottoms smoothed; ${beat}` };
 }
+
+// ---------------------------------------------------------------------------
+// Fill Blanks
+// ---------------------------------------------------------------------------
+//
+// For videos with stretches where nothing happens in the script: no points for
+// a long time, or a run that barely moves. Each one is replaced by a steady,
+// gentle wave so the device keeps going. The points either side are kept as
+// they are, so the wave starts from and returns to the script.
+
+// Blank stretches as { startMs, endMs }: a single segment at least `minGapMs`
+// long, or a run of points that stays within `flatUnits` for that long.
+// Touching stretches are merged.
+function blankStretches(pts, minGapMs, flatUnits) {
+  const out = [];
+  const add = (startMs, endMs) => {
+    const prev = out[out.length - 1];
+    if (prev && prev.endMs >= startMs) prev.endMs = Math.max(prev.endMs, endMs);
+    else out.push({ startMs, endMs });
+  };
+  for (let i = 0; i + 1 < pts.length;) {
+    let lo = pts[i].pos;
+    let hi = lo;
+    let j = i;
+    while (j + 1 < pts.length) {
+      const p = pts[j + 1].pos;
+      if (Math.max(hi, p) - Math.min(lo, p) > flatUnits) break;
+      lo = Math.min(lo, p);
+      hi = Math.max(hi, p);
+      j++;
+    }
+    if (j > i && pts[j].at - pts[i].at >= minGapMs) { add(pts[i].at, pts[j].at); i = j; continue; }
+    if (pts[i + 1].at - pts[i].at >= minGapMs) add(pts[i].at, pts[i + 1].at);
+    i++;
+  }
+  return out;
+}
+
+// Where the device would be at time `t` on the script as drawn.
+function posAt(pts, t) {
+  const j = pts.findIndex(a => a.at >= t);
+  if (j === -1) return pts[pts.length - 1].pos;
+  if (j === 0 || pts[j].at === t) return pts[j].pos;
+  const a = pts[j - 1];
+  const b = pts[j];
+  return a.pos + ((b.pos - a.pos) * (t - a.at)) / (b.at - a.at);
+}
+
+/**
+ * Fills blank stretches with a constant wave between `low` and `high`.
+ * With a range, only the blank parts inside it are filled; a selection drawn
+ * inside one long blank fills exactly that selection.
+ * @param {number} opts.minGapSec - shortest stretch that counts as blank.
+ * @param {number} opts.flatUnits - a run moving less than this counts as blank.
+ * @param {number} opts.low - bottom of the wave (0-100).
+ * @param {number} opts.high - top of the wave (0-100).
+ * @param {number} opts.cycleSec - one full up-and-down.
+ * @param {number} opts.durationMs - video length; with `ends`, the time before
+ *   the first point and after the last is filled too.
+ * @returns {{actions, message}} actions null when nothing was filled.
+ */
+export function fillBlanks(actions, range, { minGapSec = 5, flatUnits = 5, low = 30, high = 70, cycleSec = 2, durationMs = 0, ends = false } = {}) {
+  const pts = tidy(actions || []);
+  if (!pts.length) return { actions: null, message: 'No script to fill.' };
+  const minGapMs = minGapSec * 1000;
+  const cycleMs = cycleSec * 1000;
+  const [lo, hi] = [Math.min(low, high), Math.max(low, high)];
+
+  const blanks = blankStretches(pts, minGapMs, flatUnits);
+  // Before the first point and after the last there is no script to join, so
+  // the wave there starts or stops on its own.
+  if (ends && durationMs > 0) {
+    if (pts[0].at >= minGapMs) blanks.unshift({ startMs: 0, endMs: pts[0].at, openStart: true });
+    const lastAt = pts[pts.length - 1].at;
+    if (durationMs - lastAt >= minGapMs) blanks.push({ startMs: lastAt, endMs: Math.floor(durationMs), openEnd: true });
+  }
+
+  const pieces = blanks
+    .map(b => (range ? { ...b, startMs: Math.max(b.startMs, range.startMs), endMs: Math.min(b.endMs, range.endMs) } : b))
+    .filter(b => b.endMs - b.startMs >= cycleMs);
+  if (!pieces.length) {
+    return { actions: null, message: `No blank stretches of ${minGapSec}s or more${range ? ' in the selection' : ''}.` };
+  }
+
+  const inside = (t) => pieces.some(b => t > b.startMs && t < b.endMs);
+  const out = pts.filter(a => !inside(a.at));
+  for (const b of pieces) {
+    // A stretch cut short by the selection gets a point on the existing line
+    // at the cut, so the script outside the selection is unchanged.
+    const startPos = b.openStart ? null : posAt(pts, b.startMs);
+    if (!b.openStart) out.push({ at: b.startMs, pos: startPos });
+    if (!b.openEnd) out.push({ at: b.endMs, pos: posAt(pts, b.endMs) });
+
+    const n = Math.max(1, Math.round((b.endMs - b.startMs) / (cycleMs / 2)));
+    const step = (b.endMs - b.startMs) / n;
+    // First move goes to whichever level is further away, so it is a stroke.
+    let top = startPos !== null && Math.abs(startPos - lo) < Math.abs(startPos - hi);
+    for (let k = b.openStart ? 0 : 1; k <= (b.openEnd ? n : n - 1); k++) {
+      out.push({ at: b.startMs + k * step, pos: top ? hi : lo });
+      top = !top;
+    }
+  }
+
+  const filledSec = pieces.reduce((s, b) => s + (b.endMs - b.startMs), 0) / 1000;
+  return {
+    actions: tidy(out),
+    message: `filled ${pieces.length} blank stretch${pieces.length === 1 ? '' : 'es'}, ${Math.round(filledSec)}s in all`,
+  };
+}
